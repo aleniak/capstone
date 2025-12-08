@@ -67,7 +67,8 @@ function setupPredictionForm() {
     statusEl.textContent = "Sending request...";
 
     try {
-      // TODO: заменить "/predict" на URL настоящего бэкенда
+      // ВАЖНО: замените "/predict" на реальный URL вашего бэкенда
+      // Для локального тестирования можете использовать что-то вроде "http://localhost:5000/predict"
       const response = await fetch("/predict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -117,8 +118,12 @@ function setupPredictionForm() {
       statusEl.textContent = "Prediction received.";
     } catch (err) {
       console.warn("Real backend not available, using demo prediction.", err);
-
-      // DEMO: случайный прогноз
+      
+      // Показываем ошибку пользователю
+      errorEl.textContent = "Backend not available. Using demo prediction.";
+      errorEl.classList.remove("hidden");
+      
+      // Демо: случайный прогноз
       const fakeProba = 0.02 + Math.random() * 0.83;
       showDemoResult(fakeProba, resultEl, messageEl, probEl, statusEl);
     } finally {
@@ -179,7 +184,7 @@ function setupEDA() {
       return response.json();
     })
     .then((edadata) => {
-      // агрегированные счётчики из eda_data.json [file:56]
+      // агрегированные счётчики из eda_data.json
       const realCount = edadata.class_counts?.Real ?? 0;
       const fraudCount = edadata.class_counts?.Fake ?? 0;
       const total = realCount + fraudCount;
@@ -205,7 +210,7 @@ function setupEDA() {
         long: 0
       };
 
-      // пропуски по полям (в долях) → сразу переведём в проценты
+      // пропуски по полям (в процентах)
       const fields = [
         "company_profile",
         "requirements",
@@ -214,18 +219,18 @@ function setupEDA() {
         "employment_type",
         "industry"
       ];
-    const missingReal = {};
-const missingFake = {};
-fields.forEach((f) => {
-  missingReal[f] = edadata.missing?.real?.[f] ?? 0;   // уже проценты
-  missingFake[f] = edadata.missing?.fake?.[f] ?? 0;
-});
+      
+      const missingReal = {};
+      const missingFake = {};
+      fields.forEach((f) => {
+        missingReal[f] = edadata.missing?.real?.[f] ?? 0;
+        missingFake[f] = edadata.missing?.fake?.[f] ?? 0;
+      });
 
       // рисуем все четыре графика
       renderFraudChart(realCount, fraudCount);
       renderLengthChart(shortCount, mediumCount, longCount);
       renderLengthByClassChart(lenBinsReal, lenBinsFake);
-      // realCount/fraudCount здесь уже не нужны, передаём фиктивные 100
       renderMissingChart(fields, missingReal, missingFake);
     })
     .catch((error) => {
@@ -305,7 +310,7 @@ function renderLengthChart(shortCount, mediumCount, longCount) {
   lengthChart = new Chart(ctx, {
     type: "bar",
     data: {
-      labels: ["Short (<300)", "Medium (300–800)", "Long (>800)"],
+      labels: ["Short (<300)", "Medium (300-800)", "Long (>800)"],
       datasets: [
         {
           data: [shortCount, mediumCount, longCount],
@@ -342,58 +347,57 @@ function renderLengthByClassChart(lenBinsReal, lenBinsFake) {
   lengthByClassChart = new Chart(ctx, {
     type: "bar",
     data: {
-      labels: ["Short (<300)", "Medium (300–800)", "Long (>800)"],
-          datasets: [
-      {
-        label: "Real",
-        data: [
-          lenBinsReal.short,
-          lenBinsReal.medium,
-          lenBinsReal.long
-        ],
-        backgroundColor: "rgba(56, 189, 248, 0.7)"
-      },
-      {
-        label: "Fake",
-        data: [
-          lenBinsFake.short,
-          lenBinsFake.medium,
-          lenBinsFake.long
-        ],
-        backgroundColor: "rgba(248, 113, 113, 0.8)"
-      }
-    ]
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: "bottom",
-        labels: { color: "#9ca3af" }
-      }
+      labels: ["Short (<300)", "Medium (300-800)", "Long (>800)"],
+      datasets: [
+        {
+          label: "Real",
+          data: [
+            lenBinsReal.short,
+            lenBinsReal.medium,
+            lenBinsReal.long
+          ],
+          backgroundColor: "rgba(56, 189, 248, 0.7)"
+        },
+        {
+          label: "Fake",
+          data: [
+            lenBinsFake.short,
+            lenBinsFake.medium,
+            lenBinsFake.long
+          ],
+          backgroundColor: "rgba(248, 113, 113, 0.8)"
+        }
+      ]
     },
-    scales: {
-      x: { ticks: { color: "#9ca3af" } },
-      y: {
-        ticks: { color: "#9ca3af", precision: 0 },
-        beginAtZero: true
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { color: "#9ca3af" }
+        }
+      },
+      scales: {
+        x: { ticks: { color: "#9ca3af" } },
+        y: {
+          ticks: { color: "#9ca3af", precision: 0 },
+          beginAtZero: true
+        }
       }
     }
-  }
-});
+  });
 }
 
 function renderMissingChart(fields, missingReal, missingFake) {
-
   const ctx = document.getElementById("missing-chart");
   if (!ctx || typeof Chart === "undefined") return;
 
   if (missingChart) missingChart.destroy();
 
   const labels = fields.map((f) => f.replace("_", " "));
-const realPerc = fields.map((f) => missingReal[f] ?? 0);
-const fakePerc = fields.map((f) => missingFake[f] ?? 0);
+  const realPerc = fields.map((f) => missingReal[f] ?? 0);
+  const fakePerc = fields.map((f) => missingFake[f] ?? 0);
 
   missingChart = new Chart(ctx, {
     type: "bar",
