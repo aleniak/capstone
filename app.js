@@ -1,5 +1,5 @@
 // --------- Tab navigation ----------
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   const tabButtons = document.querySelectorAll(".tab-button");
   const tabContents = document.querySelectorAll(".tab-content");
 
@@ -16,9 +16,80 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // Загружаем TensorFlow.js модель
+  await loadTFModel();
   setupPredictionForm();
   setupEDA();
 });
+
+// --------- Model Loading ----------
+let tfModel = null;
+let tokenizer = null;
+
+async function loadTFModel() {
+  try {
+    console.log("Loading TensorFlow.js model...");
+    
+    // Загружаем модель из model.json
+    tfModel = await tf.loadLayersModel('model.json');
+    
+    console.log("TensorFlow.js model loaded successfully!");
+    
+    // Инициализируем простой токенизатор (замените на реальный если есть)
+    initializeTokenizer();
+    
+    return true;
+  } catch (error) {
+    console.error("Failed to load TensorFlow.js model:", error);
+    tfModel = null;
+    
+    // Показываем ошибку пользователю
+    const errorEl = document.getElementById("predict-error");
+    if (errorEl) {
+      errorEl.textContent = "ML model failed to load. Using rule-based analysis.";
+      errorEl.classList.remove("hidden");
+    }
+    
+    return false;
+  }
+}
+
+function initializeTokenizer() {
+  // Простой токенизатор для примера
+  // В реальном приложении используйте тот же токенизатор, что и при обучении
+  tokenizer = {
+    wordIndex: {},
+    maxLength: 300,
+    
+    textsToSequences: function(texts) {
+      return texts.map(text => {
+        // Простая токенизация по словам
+        const words = text.toLowerCase()
+          .replace(/[^\w\s]/g, ' ')
+          .split(/\s+/)
+          .filter(word => word.length > 0);
+        
+        // Преобразуем слова в индексы (упрощенно)
+        const sequence = words.map(word => {
+          // Простая хэш-функция для создания индексов
+          let hash = 0;
+          for (let i = 0; i < word.length; i++) {
+            hash = ((hash << 5) - hash) + word.charCodeAt(i);
+            hash = hash & hash;
+          }
+          return Math.abs(hash) % 29999 + 1; // 1-30000 для embedding
+        });
+        
+        // Обрезаем или дополняем до maxLength
+        if (sequence.length > this.maxLength) {
+          return sequence.slice(0, this.maxLength);
+        } else {
+          return sequence.concat(new Array(this.maxLength - sequence.length).fill(0));
+        }
+      });
+    }
+  };
+}
 
 // --------- Job Check logic ----------
 function setupPredictionForm() {
@@ -49,7 +120,7 @@ function setupPredictionForm() {
     const employment_type = (formData.get("employment_type") || "").toString().trim();
     const industry = (formData.get("industry") || "").toString().trim();
 
-    // Проверяем заполненность полей для рекомендаций
+    // Проверяем заполненность полей
     const fieldsFilled = {
       title: title.length > 0,
       company_profile: company_profile.length > 0,
@@ -77,49 +148,42 @@ function setupPredictionForm() {
       industry
     ].join(" ");
 
-    const payload = { full_text };
-
     predictButton.disabled = true;
-    statusEl.textContent = "Analyzing job posting...";
+    statusEl.textContent = "Analyzing with ML model...";
 
     try {
-      // Пробуем реальный бэкенд
-      const response = await fetch("/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        throw new Error("Backend server returned status " + response.status);
+      let fraudProba;
+      let isModelPrediction = false;
+      
+      // Пробуем использовать TensorFlow.js модель
+      if (tfModel && tokenizer && typeof tf !== 'undefined') {
+        try {
+          fraudProba = await predictWithTFModel(full_text);
+          isModelPrediction = true;
+          statusEl.textContent = "ML analysis complete.";
+        } catch (modelError) {
+          console.warn("TF Model prediction failed, using fallback:", modelError);
+          fraudProba = analyzeJobLocally(title, company_profile, description, requirements, 
+                                       benefits, location, salary_range, employment_type, industry);
+          statusEl.textContent = "Using rule-based analysis (model failed).";
+        }
+      } else {
+        // Если модель не загрузилась, используем эвристический анализ
+        fraudProba = analyzeJobLocally(title, company_profile, description, requirements, 
+                                     benefits, location, salary_range, employment_type, industry);
+        statusEl.textContent = "Using rule-based analysis (no ML model).";
       }
-
-      const data = await response.json();
-
-      const proba =
-        typeof data.fraud_proba === "number"
-          ? data.fraud_proba
-          : typeof data.probability === "number"
-          ? data.probability
-          : typeof data.fraud_probability === "number"
-          ? data.fraud_probability
-          : null;
-
-      if (proba === null || isNaN(proba)) {
-        throw new Error("Unexpected response format from backend");
-      }
-
-      const fraudProba = Math.min(Math.max(proba, 0), 1);
-      showResults(fraudProba, filledCount, totalFields, fieldsFilled, full_text, resultEl, messageEl, probEl, statusEl, false);
+      
+      showResults(fraudProba, filledCount, totalFields, fieldsFilled, full_text, 
+                 resultEl, messageEl, probEl, statusEl, isModelPrediction);
 
     } catch (err) {
-      console.warn("Backend not available, using local analysis.", err);
+      console.error("Prediction error:", err);
       
-      // Используем локальный анализ на основе данных пользователя
-      const fraudProba = analyzeJobLocally(title, company_profile, description, requirements, 
-                                         benefits, location, salary_range, employment_type, industry);
+      errorEl.textContent = "Analysis failed. Please try again.";
+      errorEl.classList.remove("hidden");
+      statusEl.textContent = "Error occurred.";
       
-      showResults(fraudProba, filledCount, totalFields, fieldsFilled, full_text, resultEl, messageEl, probEl, statusEl, true);
     } finally {
       predictButton.disabled = false;
       setTimeout(() => {
@@ -129,189 +193,103 @@ function setupPredictionForm() {
   });
 }
 
-function showResults(fraudProba, filledCount, totalFields, fieldsFilled, fullText, resultEl, messageEl, probEl, statusEl, isLocal) {
+// Предсказание с помощью TensorFlow.js модели
+async function predictWithTFModel(text) {
+  if (!tfModel || !tokenizer) {
+    throw new Error("Model not loaded");
+  }
+  
+  // Подготавливаем текст для модели
+  const sequences = tokenizer.textsToSequences([text]);
+  const tensor = tf.tensor2d(sequences, [1, tokenizer.maxLength]);
+  
+  // Делаем предсказание
+  const prediction = tfModel.predict(tensor);
+  const probability = await prediction.data();
+  
+  // Очищаем тензоры
+  tensor.dispose();
+  prediction.dispose();
+  
+  // Возвращаем вероятность мошенничества (1 = fake)
+  return probability[0];
+}
+
+function showResults(fraudProba, filledCount, totalFields, fieldsFilled, fullText, 
+                    resultEl, messageEl, probEl, statusEl, isModelPrediction) {
   const fraudPct = (fraudProba * 100).toFixed(1);
   const legitPct = (100 - fraudProba * 100).toFixed(1);
 
   resultEl.classList.remove("hidden", "success", "danger");
 
+  const modelType = isModelPrediction ? " (ML model)" : " (rule-based)";
+  
   if (fraudProba < 0.5) {
     resultEl.classList.add("success");
-    messageEl.textContent = isLocal ? 
-      "This job posting appears legitimate (local analysis)." : 
-      "This job posting appears legitimate.";
+    messageEl.textContent = `This job posting appears legitimate${modelType}.`;
   } else {
     resultEl.classList.add("danger");
-    messageEl.textContent = isLocal ? 
-      "Warning: high fraud probability detected (local analysis)." : 
-      "Warning: high fraud probability detected.";
+    messageEl.textContent = `Warning: high fraud probability detected${modelType}.`;
   }
 
   probEl.textContent =
-    "Fraud probability: " +
-    fraudPct +
-    "% · Legitimate probability: " +
-    legitPct +
-    "%";
+    `Fraud probability: ${fraudPct}% · Legitimate probability: ${legitPct}%`;
 
   // Добавляем рекомендацию
   const recommendation = getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, fullText);
   displayRecommendation(recommendation, fraudProba);
 
-  statusEl.textContent = isLocal ? "Local analysis complete (no backend)." : "Analysis complete.";
+  if (isModelPrediction) {
+    statusEl.textContent = "ML model analysis complete.";
+  } else {
+    statusEl.textContent = "Rule-based analysis complete.";
+  }
 }
 
-// Локальный анализ вакансии на основе введенных данных - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Эвристический анализ (запасной вариант)
 function analyzeJobLocally(title, company_profile, description, requirements, 
                          benefits, location, salary_range, employment_type, industry) {
   
   let fraudIndicators = 0;
-  let totalIndicators = 0;
+  let totalFactors = 0;
   let fraudScore = 0;
   
-  // 1. Анализ текста на мошеннические паттерны (самый важный фактор)
   const fullText = (title + " " + company_profile + " " + description + " " + 
                    requirements + " " + benefits).toLowerCase();
   
+  // Анализ текстовых паттернов
   const scamPatterns = [
-    { pattern: /earn.*\$?\d+,?\d*\s*(per|a)\s*(week|month)/i, weight: 0.15, reason: "Unrealistic earnings promises" },
-    { pattern: /no experience needed|no experience required/i, weight: 0.10, reason: "No experience required" },
-    { pattern: /immediate (start|hiring|position)/i, weight: 0.08, reason: "Urgent hiring pressure" },
-    { pattern: /(investment|fee|payment|money).*required|registration fee/i, weight: 0.25, reason: "Requests for payment" },
-    { pattern: /multi.?level.?marketing|mlm|network marketing/i, weight: 0.20, reason: "MLM/pyramid scheme" },
-    { pattern: /guaranteed.*income|guaranteed.*payment/i, weight: 0.18, reason: "Guaranteed income promises" },
-    { pattern: /work from home|remote work|home based/i, weight: 0.03, reason: "Work from home mention" },
-    { pattern: /apply now|contact now|call now/i, weight: 0.05, reason: "High pressure language" },
-    { pattern: /flexible hours|flexible schedule/i, weight: 0.02, reason: "Flexible hours" },
-    { pattern: /free.*training|free.*enrollment/i, weight: 0.07, reason: "Free training" },
-    { pattern: /data entry|paid surveys|mystery shopping/i, weight: 0.10, reason: "Common scam job types" }
+    { pattern: /earn.*\$?\d+,?\d*\s*(per|a)\s*(week|month)/i, weight: 0.3 },
+    { pattern: /no experience needed|no experience required/i, weight: 0.2 },
+    { pattern: /investment.*required|fee.*required|payment.*required/i, weight: 0.4 },
+    { pattern: /mlm|multi.?level.?marketing/i, weight: 0.3 },
+    { pattern: /guaranteed.*income/i, weight: 0.25 },
+    { pattern: /immediate (start|hiring|position)/i, weight: 0.15 },
+    { pattern: /apply now|contact now|call now/i, weight: 0.1 }
   ];
   
-  let textScore = 0;
-  let textWeight = 0;
   scamPatterns.forEach(item => {
     if (item.pattern.test(fullText)) {
-      textScore += item.weight;
-      textWeight += item.weight;
+      fraudScore += item.weight;
       fraudIndicators++;
     }
   });
   
-  // Текстовый анализ составляет 40% от общего веса
-  totalIndicators += 0.4;
-  fraudScore += (textWeight > 0 ? Math.min(textScore / textWeight, 1) : 0.1) * 0.4;
+  totalFactors += 1.0;
   
-  // 2. Анализ полноты информации (30% веса)
-  let completenessScore = 0;
-  let completenessWeight = 0;
+  // Корректировка на основе количества индикаторов
+  let finalProba = fraudScore / totalFactors;
   
-  // Проверяем важные поля
-  if (company_profile && company_profile.length > 50) completenessScore += 0.1; // Хороший профиль компании
-  if (!company_profile || company_profile.length < 20) completenessScore -= 0.15; // Нет профиля
-  completenessWeight += 0.1;
-  
-  if (location && location.length > 2) completenessScore += 0.05; // Есть локация
-  if (!location || location.length < 2) completenessScore -= 0.1; // Нет локации
-  completenessWeight += 0.05;
-  
-  if (salary_range && salary_range.length > 0) completenessScore += 0.05; // Есть зарплата
-  if (!salary_range || salary_range.length === 0) completenessScore -= 0.05; // Нет зарплаты
-  completenessWeight += 0.05;
-  
-  if (requirements && requirements.length > 30) completenessScore += 0.1; // Подробные требования
-  if (!requirements || requirements.length < 10) completenessScore -= 0.1; // Нет требований
-  completenessWeight += 0.1;
-  
-  // Нормализуем оценку полноты
-  const normalizedCompleteness = completenessWeight > 0 ? 
-    Math.max(0, Math.min((completenessScore / completenessWeight + 1) / 2, 1)) : 0.5;
-  
-  // Высокая полнота уменьшает вероятность мошенничества
-  fraudScore += (1 - normalizedCompleteness) * 0.3;
-  totalIndicators += 0.3;
-  
-  // 3. Анализ качества текста (20% веса)
-  let qualityScore = 0;
-  let qualityWeight = 0;
-  
-  // Длина текста
-  const totalLength = fullText.length;
-  if (totalLength < 100) {
-    qualityScore += 0.8; // Слишком короткий - подозрительно
-    fraudIndicators++;
-  } else if (totalLength < 300) {
-    qualityScore += 0.3;
-  } else if (totalLength > 1000) {
-    qualityScore += 0.1; // Длинный текст обычно нормальный
-  }
-  qualityWeight += 1;
-  
-  // Профессиональный язык
-  const professionalTerms = /responsibilit|qualificat|experience|skill|develop|manag|project|team|client/i;
-  if (professionalTerms.test(fullText)) {
-    qualityScore -= 0.3; // Профессиональные термины уменьшают риск
-  }
-  qualityWeight += 0.3;
-  
-  const normalizedQuality = qualityWeight > 0 ? Math.min(qualityScore / qualityWeight, 1) : 0.2;
-  fraudScore += normalizedQuality * 0.2;
-  totalIndicators += 0.2;
-  
-  // 4. Анализ зарплаты (10% веса)
-  let salaryScore = 0;
-  let salaryWeight = 0;
-  
-  if (salary_range) {
-    const salaryMatch = salary_range.match(/\$?(\d+,?\d+)/);
-    if (salaryMatch) {
-      const salary = parseInt(salaryMatch[1].replace(/,/g, ''));
-      if (!isNaN(salary)) {
-        salaryWeight = 1;
-        // Проверяем реалистичность зарплаты
-        if (salary < 10000) {
-          salaryScore = 0.6; // Очень низкая зарплата
-          fraudIndicators++;
-        } else if (salary < 30000) {
-          salaryScore = 0.2; // Низкая но возможная
-        } else if (salary > 200000) {
-          salaryScore = 0.7; // Нереально высокая
-          fraudIndicators++;
-        } else if (salary > 500000) {
-          salaryScore = 0.9; // Очень подозрительная
-          fraudIndicators++;
-        } else {
-          salaryScore = 0.1; // Нормальная зарплата
-        }
-      }
-    }
-  }
-  
-  const normalizedSalary = salaryWeight > 0 ? salaryScore : 0.3; // Если нет зарплаты - средний риск
-  fraudScore += normalizedSalary * 0.1;
-  totalIndicators += 0.1;
-  
-  // Рассчитываем итоговую вероятность
-  let finalProba = totalIndicators > 0 ? fraudScore / totalIndicators : 0.15;
-  
-  // Корректируем на основе количества индикаторов
   if (fraudIndicators === 0) {
-    finalProba = Math.max(0.05, finalProba * 0.5); // Нет индикаторов - низкий риск
+    finalProba = 0.15; // Нет индикаторов - низкий риск
   } else if (fraudIndicators === 1) {
-    finalProba = Math.min(0.4, finalProba * 1.2); // Один индикатор
-  } else if (fraudIndicators === 2) {
-    finalProba = Math.min(0.6, finalProba * 1.5); // Два индикатора
-  } else if (fraudIndicators >= 3) {
-    finalProba = Math.min(0.85, finalProba * 2); // Много индикаторов
+    finalProba = Math.min(0.4, finalProba * 1.5);
+  } else if (fraudIndicators >= 2) {
+    finalProba = Math.min(0.7, finalProba * 2);
   }
   
   // Добавляем базовую вероятность и ограничиваем диапазон
-  finalProba = Math.max(0.05, Math.min(finalProba, 0.9));
-  
-  // Учитываем заполненность формы
-  const completenessRatio = filledCount / totalFields;
-  if (completenessRatio < 0.3) {
-    finalProba = 0.3; // Если мало данных, возвращаем средний риск
-  }
+  finalProba = Math.max(0.05, Math.min(finalProba, 0.85));
   
   return finalProba;
 }
@@ -324,19 +302,13 @@ function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, f
   let confidence = "";
   
   // Определяем уровень уверенности
-  if (fraudProba < 0.2) {
-    confidence = "HIGH confidence";
-  } else if (fraudProba < 0.4) {
-    confidence = "MEDIUM confidence";
-  } else if (fraudProba < 0.6) {
-    confidence = "MEDIUM confidence";
-  } else if (fraudProba < 0.8) {
-    confidence = "MEDIUM confidence";
-  } else {
-    confidence = "HIGH confidence";
-  }
+  if (fraudProba < 0.2) confidence = "HIGH confidence";
+  else if (fraudProba < 0.4) confidence = "MEDIUM confidence";
+  else if (fraudProba < 0.6) confidence = "MEDIUM confidence";
+  else if (fraudProba < 0.8) confidence = "MEDIUM confidence";
+  else confidence = "HIGH confidence";
   
-  // Основная рекомендация по вероятности мошенничества
+  // Основная рекомендация
   if (fraudProba < 0.15) {
     recommendation = {
       title: "✅ SAFE - Likely legitimate job",
@@ -345,8 +317,7 @@ function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, f
         "Professional language and detailed description",
         "Realistic salary and requirements",
         "Complete company information provided"
-      ],
-      color: "green"
+      ]
     };
   } else if (fraudProba < 0.35) {
     recommendation = {
@@ -356,8 +327,7 @@ function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, f
         "Check company reviews online",
         "Verify contact information",
         "Look for official website and social media"
-      ],
-      color: "orange"
+      ]
     };
   } else if (fraudProba < 0.55) {
     recommendation = {
@@ -367,8 +337,7 @@ function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, f
         "Research the company extensively",
         "Never pay any fees upfront",
         "Be cautious with personal information"
-      ],
-      color: "orange"
+      ]
     };
   } else if (fraudProba < 0.75) {
     recommendation = {
@@ -378,8 +347,7 @@ function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, f
         "Multiple scam patterns identified",
         "Avoid sharing sensitive information",
         "Consider reporting this posting"
-      ],
-      color: "red"
+      ]
     };
   } else {
     recommendation = {
@@ -389,8 +357,7 @@ function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, f
         "Do not respond to this posting",
         "Report to job platform if possible",
         "Protect your personal information"
-      ],
-      color: "red"
+      ]
     };
   }
   
@@ -401,64 +368,22 @@ function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, f
     recommendation.details.push(`✅ Good input: ${filledCount}/${totalFields} fields provided for accurate analysis.`);
   }
   
-  // Проверяем конкретные проблемные поля
-  const missingImportant = [];
-  if (!fieldsFilled.company_profile) missingImportant.push("company profile");
-  if (!fieldsFilled.location) missingImportant.push("location");
-  
-  if (missingImportant.length > 0 && fraudProba > 0.3) {
-    recommendation.details.push(`⚠️ Missing important information: ${missingImportant.join(", ")}`);
-  }
-  
-  // Анализ паттернов в тексте
-  const scamIndicators = analyzeTextPatterns(fullText);
-  if (scamIndicators.length > 0 && fraudProba > 0.4) {
-    recommendation.details.push(`🔍 Detected patterns: ${scamIndicators.slice(0, 2).join(", ")}`);
-  }
-  
   recommendation.confidence = confidence;
   recommendation.completeness = completeness;
   
   return recommendation;
 }
 
-// Анализ текста на мошеннические паттерны
-function analyzeTextPatterns(text) {
-  const indicators = [];
-  const textLower = text.toLowerCase();
-  
-  if (/earn.*\$?\d+,?\d*\s*(per|a)\s*(week|month)/i.test(textLower)) {
-    indicators.push("High earnings promises");
-  }
-  if (/no experience needed|no experience required/i.test(textLower)) {
-    indicators.push("No experience needed");
-  }
-  if (/investment.*required|fee.*required|payment.*required/i.test(textLower)) {
-    indicators.push("Upfront payment requested");
-  }
-  if (/mlm|multi.?level.?marketing/i.test(textLower)) {
-    indicators.push("MLM scheme");
-  }
-  if (/guaranteed.*income/i.test(textLower)) {
-    indicators.push("Guaranteed income");
-  }
-  
-  return indicators;
-}
-
 // Функция для отображения рекомендации
 function displayRecommendation(recommendation, fraudProba) {
-  // Удаляем старую рекомендацию, если есть
   const oldRec = document.getElementById("recommendation-container");
   if (oldRec) oldRec.remove();
   
-  // Создаем контейнер для рекомендации
   const resultEl = document.getElementById("predict-result");
   const recContainer = document.createElement("div");
   recContainer.id = "recommendation-container";
   recContainer.className = "recommendation";
   
-  // Добавляем класс в зависимости от уровня риска
   if (fraudProba < 0.3) {
     recContainer.classList.add("recommendation-safe");
   } else if (fraudProba < 0.6) {
@@ -467,7 +392,6 @@ function displayRecommendation(recommendation, fraudProba) {
     recContainer.classList.add("recommendation-danger");
   }
   
-  // Создаем HTML для рекомендации
   recContainer.innerHTML = `
     <div class="recommendation-header">
       <h3>${recommendation.title}</h3>
@@ -481,18 +405,9 @@ function displayRecommendation(recommendation, fraudProba) {
           ${recommendation.details.map(detail => `<li>${detail}</li>`).join('')}
         </ul>
       </div>
-      ${recommendation.completeness < 60 ? 
-        `<div class="completeness-warning">
-          <strong>Tip:</strong> For better accuracy, fill all fields (${recommendation.completeness.toFixed(0)}% complete)
-        </div>` : 
-        `<div class="completeness-good">
-          <strong>Good job!</strong> Comprehensive input (${recommendation.completeness.toFixed(0)}% complete) enabled detailed analysis.
-        </div>`
-      }
     </div>
   `;
   
-  // Вставляем рекомендацию после результата
   resultEl.appendChild(recContainer);
 }
 
