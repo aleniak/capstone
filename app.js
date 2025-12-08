@@ -49,6 +49,22 @@ function setupPredictionForm() {
     const employment_type = (formData.get("employment_type") || "").toString().trim();
     const industry = (formData.get("industry") || "").toString().trim();
 
+    // Проверяем заполненность полей для рекомендаций
+    const fieldsFilled = {
+      title: title.length > 0,
+      company_profile: company_profile.length > 0,
+      description: description.length > 0,
+      requirements: requirements.length > 0,
+      benefits: benefits.length > 0,
+      location: location.length > 0,
+      salary_range: salary_range.length > 0,
+      employment_type: employment_type.length > 0,
+      industry: industry.length > 0
+    };
+
+    const filledCount = Object.values(fieldsFilled).filter(Boolean).length;
+    const totalFields = Object.keys(fieldsFilled).length;
+
     const full_text = [
       title,
       company_profile,
@@ -64,11 +80,10 @@ function setupPredictionForm() {
     const payload = { full_text };
 
     predictButton.disabled = true;
-    statusEl.textContent = "Sending request...";
+    statusEl.textContent = "Analyzing job posting...";
 
     try {
-      // ВАЖНО: замените "/predict" на реальный URL вашего бэкенда
-      // Для локального тестирования можете использовать что-то вроде "http://localhost:5000/predict"
+      // Пробуем реальный бэкенд
       const response = await fetch("/predict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -76,7 +91,7 @@ function setupPredictionForm() {
       });
 
       if (!response.ok) {
-        throw new Error("Server returned status " + response.status);
+        throw new Error("Backend server returned status " + response.status);
       }
 
       const data = await response.json();
@@ -91,7 +106,7 @@ function setupPredictionForm() {
           : null;
 
       if (proba === null || isNaN(proba)) {
-        throw new Error("Unexpected response format");
+        throw new Error("Unexpected response format from backend");
       }
 
       const fraudProba = Math.min(Math.max(proba, 0), 1);
@@ -105,7 +120,7 @@ function setupPredictionForm() {
         messageEl.textContent = "This job posting appears legitimate.";
       } else {
         resultEl.classList.add("danger");
-        messageEl.textContent = "Warning: high fraud probability.";
+        messageEl.textContent = "Warning: high fraud probability detected.";
       }
 
       probEl.textContent =
@@ -115,17 +130,43 @@ function setupPredictionForm() {
         legitPct +
         "%";
 
-      statusEl.textContent = "Prediction received.";
+      // Добавляем рекомендацию
+      const recommendation = getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, full_text);
+      displayRecommendation(recommendation, fraudProba);
+
+      statusEl.textContent = "Analysis complete.";
     } catch (err) {
-      console.warn("Real backend not available, using demo prediction.", err);
+      console.warn("Backend not available, using local analysis.", err);
       
-      // Показываем ошибку пользователю
-      errorEl.textContent = "Backend not available. Using demo prediction.";
-      errorEl.classList.remove("hidden");
+      // Используем локальный анализ на основе данных пользователя
+      const fraudProba = analyzeJobLocally(title, company_profile, description, requirements, 
+                                         benefits, location, salary_range, employment_type, industry);
       
-      // Демо: случайный прогноз
-      const fakeProba = 0.02 + Math.random() * 0.83;
-      showDemoResult(fakeProba, resultEl, messageEl, probEl, statusEl);
+      const fraudPct = (fraudProba * 100).toFixed(1);
+      const legitPct = (100 - fraudProba * 100).toFixed(1);
+
+      resultEl.classList.remove("hidden", "success", "danger");
+
+      if (fraudProba < 0.5) {
+        resultEl.classList.add("success");
+        messageEl.textContent = "This job posting appears legitimate (local analysis).";
+      } else {
+        resultEl.classList.add("danger");
+        messageEl.textContent = "Warning: high fraud probability detected (local analysis).";
+      }
+
+      probEl.textContent =
+        "Fraud probability: " +
+        fraudPct +
+        "% · Legitimate probability: " +
+        legitPct +
+        "%";
+
+      // Добавляем рекомендацию
+      const recommendation = getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, full_text);
+      displayRecommendation(recommendation, fraudProba);
+
+      statusEl.textContent = "Local analysis complete (no backend).";
     } finally {
       predictButton.disabled = false;
       setTimeout(() => {
@@ -135,31 +176,282 @@ function setupPredictionForm() {
   });
 }
 
-function showDemoResult(proba, resultEl, messageEl, probEl, statusEl) {
-  const fraudProba = Math.min(Math.max(proba, 0), 1);
-  const fraudPct = (fraudProba * 100).toFixed(1);
-  const legitPct = (100 - fraudProba * 100).toFixed(1);
-
-  resultEl.classList.remove("hidden", "success", "danger");
-
-  if (fraudProba < 0.5) {
-    resultEl.classList.add("success");
-    messageEl.textContent =
-      "This job posting appears legitimate (demo mode).";
-  } else {
-    resultEl.classList.add("danger");
-    messageEl.textContent =
-      "Warning: high fraud probability (demo mode).";
+// Локальный анализ вакансии на основе введенных данных
+function analyzeJobLocally(title, company_profile, description, requirements, 
+                         benefits, location, salary_range, employment_type, industry) {
+  let fraudScore = 0;
+  let totalFactors = 0;
+  
+  // 1. Анализ текста на мошеннические паттерны
+  const fullText = (title + " " + company_profile + " " + description + " " + 
+                   requirements + " " + benefits).toLowerCase();
+  
+  const scamPatterns = [
+    { pattern: /earn.*\$\d+,?\d*\s*(per|a)\s*(week|month)/i, weight: 0.8 },
+    { pattern: /work from home|remote work|home based/i, weight: 0.3 },
+    { pattern: /no experience needed|no experience required/i, weight: 0.4 },
+    { pattern: /immediate (start|hiring|position)/i, weight: 0.5 },
+    { pattern: /apply now|contact now|call now/i, weight: 0.4 },
+    { pattern: /flexible hours|flexible schedule/i, weight: 0.2 },
+    { pattern: /free.*training|free.*enrollment/i, weight: 0.6 },
+    { pattern: /guaranteed.*income|guaranteed.*payment/i, weight: 0.7 },
+    { pattern: /investment required|registration fee/i, weight: 0.9 },
+    { pattern: /multi.*level.*marketing|mlm|network marketing/i, weight: 0.8 },
+    { pattern: /data entry|paid surveys|mystery shopping/i, weight: 0.4 }
+  ];
+  
+  let patternScore = 0;
+  let foundPatterns = 0;
+  scamPatterns.forEach(item => {
+    if (item.pattern.test(fullText)) {
+      patternScore += item.weight;
+      foundPatterns++;
+    }
+  });
+  
+  if (foundPatterns > 0) {
+    fraudScore += (patternScore / Math.max(foundPatterns, 1)) * 0.6;
+    totalFactors += 0.6;
   }
+  
+  // 2. Анализ длины текста
+  const totalLength = fullText.length;
+  if (totalLength < 100) {
+    fraudScore += 0.5; // Слишком короткие описания подозрительны
+    totalFactors += 0.5;
+  } else if (totalLength > 5000) {
+    fraudScore += 0.1; // Очень длинные обычно нормальные
+    totalFactors += 0.1;
+  }
+  
+  // 3. Анализ зарплаты
+  if (salary_range) {
+    const salary = parseInt(salary_range.replace(/[^\d]/g, ''));
+    if (!isNaN(salary)) {
+      if (salary < 10000) {
+        fraudScore += 0.3; // Слишком низкая зарплата
+        totalFactors += 0.3;
+      } else if (salary > 300000) {
+        fraudScore += 0.4; // Нереально высокая зарплата
+        totalFactors += 0.4;
+      }
+    } else {
+      fraudScore += 0.2; // Нечисловая зарплата
+      totalFactors += 0.2;
+    }
+  } else {
+    fraudScore += 0.2; // Отсутствие зарплаты
+    totalFactors += 0.2;
+  }
+  
+  // 4. Анализ локации
+  if (!location || location.length < 2) {
+    fraudScore += 0.3; // Нет локации
+    totalFactors += 0.3;
+  }
+  
+  // 5. Анализ профиля компании
+  if (!company_profile || company_profile.length < 20) {
+    fraudScore += 0.4; // Нет или короткий профиль компании
+    totalFactors += 0.4;
+  }
+  
+  // 6. Анализ требований
+  if (!requirements || requirements.length < 10) {
+    fraudScore += 0.3; // Нет требований
+    totalFactors += 0.3;
+  }
+  
+  // 7. Анализ типа работы
+  if (employment_type === "Other" || !employment_type) {
+    fraudScore += 0.2; // Нестандартный тип
+    totalFactors += 0.2;
+  }
+  
+  // Нормализуем результат
+  const fraudProba = totalFactors > 0 ? Math.min(fraudScore / totalFactors, 0.95) : 0.1;
+  
+  // Добавляем базовую вероятность
+  return Math.max(0.05, Math.min(fraudProba, 0.95));
+}
 
-  probEl.textContent =
-    "Fraud probability: " +
-    fraudPct +
-    "% · Legitimate probability: " +
-    legitPct +
-    "%";
+// Функция для получения рекомендации на английском
+function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, fullText) {
+  const completeness = (filledCount / totalFields) * 100;
+  
+  let recommendation = {};
+  let confidence = "";
+  
+  // Определяем уровень уверенности
+  if (fraudProba < 0.2) {
+    confidence = "VERY HIGH confidence";
+  } else if (fraudProba < 0.4) {
+    confidence = "HIGH confidence";
+  } else if (fraudProba < 0.6) {
+    confidence = "MEDIUM confidence";
+  } else if (fraudProba < 0.8) {
+    confidence = "LOW confidence";
+  } else {
+    confidence = "VERY LOW confidence";
+  }
+  
+  // Основная рекомендация по вероятности мошенничества
+  if (fraudProba < 0.1) {
+    recommendation = {
+      title: "✅ STRONGLY RECOMMEND applying for this job",
+      text: "The job posting appears highly legitimate. Fraud probability is extremely low.",
+      details: [
+        "Job posting matches typical characteristics of legitimate offers",
+        "Recommend verifying the company in official registries",
+        "Clarify employment details during the interview"
+      ]
+    };
+  } else if (fraudProba < 0.3) {
+    recommendation = {
+      title: "⚠️ CONSIDER applying for this job",
+      text: "The job looks normal, but there are minor risks to be aware of.",
+      details: [
+        "Recommend additional verification of the company",
+        "Check for official contact information",
+        "Never transfer money for employment opportunities"
+      ]
+    };
+  } else if (fraudProba < 0.5) {
+    recommendation = {
+      title: "⚠️ PROCEED WITH CAUTION",
+      text: "There are some suspicious signs. Additional verification is required.",
+      details: [
+        "Thoroughly research the company online",
+        "Look for employer reviews and ratings",
+        "Do not share confidential information before interview"
+      ]
+    };
+  } else if (fraudProba < 0.7) {
+    recommendation = {
+      title: "❌ NOT RECOMMENDED",
+      text: "High probability of fraud. Be extremely cautious.",
+      details: [
+        "Strong indicators of potential scam detected",
+        "Avoid sending resume with personal information",
+        "Watch for requests for upfront payments"
+      ]
+    };
+  } else {
+    recommendation = {
+      title: "🚫 CRITICAL RISK - DO NOT APPLY",
+      text: "Extremely high probability of fraud. AVOID THIS POSTING!",
+      details: [
+        "Clear signs of fraudulent activity detected",
+        "Do not contact the supposed employer",
+        "Consider reporting this posting to the platform"
+      ]
+    };
+  }
+  
+  // Добавляем информацию о заполненности полей
+  if (completeness < 50) {
+    recommendation.details.push(`⚠️ You only filled ${filledCount} out of ${totalFields} fields. Results are less accurate.`);
+  } else if (completeness > 80) {
+    recommendation.details.push(`✅ Good job! You filled ${filledCount} out of ${totalFields} fields for accurate analysis.`);
+  }
+  
+  // Проверяем конкретные проблемные поля
+  const problemFields = [];
+  if (!fieldsFilled.company_profile) problemFields.push("company profile");
+  if (!fieldsFilled.salary_range) problemFields.push("salary information");
+  if (!fieldsFilled.location) problemFields.push("location");
+  
+  if (problemFields.length > 0 && fraudProba > 0.3) {
+    recommendation.details.push(`⚠️ Missing information: ${problemFields.join(", ")}`);
+  }
+  
+  // Анализ текста на конкретные паттерны
+  const scamIndicators = analyzeTextPatterns(fullText);
+  if (scamIndicators.length > 0 && fraudProba > 0.4) {
+    recommendation.details.push(`⚠️ Detected potential red flags: ${scamIndicators.join(", ")}`);
+  }
+  
+  recommendation.confidence = confidence;
+  recommendation.completeness = completeness;
+  
+  return recommendation;
+}
 
-  statusEl.textContent = "Demo prediction (no backend).";
+// Анализ текста на мошеннические паттерны
+function analyzeTextPatterns(text) {
+  const indicators = [];
+  const textLower = text.toLowerCase();
+  
+  if (/earn.*\$\d+,?\d*\s*(per|a)\s*(week|month)/i.test(textLower)) {
+    indicators.push("Unrealistic earnings promises");
+  }
+  if (/no experience needed|no experience required/i.test(textLower)) {
+    indicators.push("No experience required for high pay");
+  }
+  if (/immediate (start|hiring|position)/i.test(textLower)) {
+    indicators.push("Urgent hiring language");
+  }
+  if (/investment required|registration fee/i.test(textLower)) {
+    indicators.push("Requests for upfront payment");
+  }
+  if (/multi.*level.*marketing|mlm|network marketing/i.test(textLower)) {
+    indicators.push("MLM/pyramid scheme indicators");
+  }
+  if (/guaranteed.*income|guaranteed.*payment/i.test(textLower)) {
+    indicators.push("Guaranteed income promises");
+  }
+  
+  return indicators;
+}
+
+// Функция для отображения рекомендации
+function displayRecommendation(recommendation, fraudProba) {
+  // Удаляем старую рекомендацию, если есть
+  const oldRec = document.getElementById("recommendation-container");
+  if (oldRec) oldRec.remove();
+  
+  // Создаем контейнер для рекомендации
+  const resultEl = document.getElementById("predict-result");
+  const recContainer = document.createElement("div");
+  recContainer.id = "recommendation-container";
+  recContainer.className = "recommendation";
+  
+  // Добавляем класс в зависимости от уровня риска
+  if (fraudProba < 0.3) {
+    recContainer.classList.add("recommendation-safe");
+  } else if (fraudProba < 0.5) {
+    recContainer.classList.add("recommendation-warning");
+  } else {
+    recContainer.classList.add("recommendation-danger");
+  }
+  
+  // Создаем HTML для рекомендации
+  recContainer.innerHTML = `
+    <div class="recommendation-header">
+      <h3>${recommendation.title}</h3>
+      <div class="recommendation-confidence">Confidence level: ${recommendation.confidence}</div>
+    </div>
+    <div class="recommendation-body">
+      <p class="recommendation-summary">${recommendation.text}</p>
+      <div class="recommendation-details">
+        <h4>Recommended actions:</h4>
+        <ul>
+          ${recommendation.details.map(detail => `<li>${detail}</li>`).join('')}
+        </ul>
+      </div>
+      ${recommendation.completeness < 70 ? 
+        `<div class="completeness-warning">
+          <strong>Tip:</strong> Fill more fields for better accuracy (currently ${recommendation.completeness.toFixed(0)}% filled)
+        </div>` : 
+        `<div class="completeness-good">
+          <strong>Great!</strong> You filled ${recommendation.completeness.toFixed(0)}% of fields, ensuring high analysis accuracy.
+        </div>`
+      }
+    </div>
+  `;
+  
+  // Вставляем рекомендацию после результата
+  resultEl.appendChild(recContainer);
 }
 
 // --------- EDA logic using eda_data.json ----------
