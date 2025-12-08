@@ -16,32 +16,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // Загружаем TensorFlow.js модель
-  await loadTFModel();
+  // Загружаем TensorFlow.js модель и токенизатор
+  await loadTFModelAndTokenizer();
   setupPredictionForm();
   setupEDA();
 });
 
-// --------- Model Loading ----------
+// --------- Model and Tokenizer Loading ----------
 let tfModel = null;
 let tokenizer = null;
 
-async function loadTFModel() {
+async function loadTFModelAndTokenizer() {
   try {
-    console.log("Loading TensorFlow.js model...");
+    console.log("Loading TensorFlow.js model and tokenizer...");
     
     // Загружаем модель из model.json
     tfModel = await tf.loadLayersModel('model.json');
-    
     console.log("TensorFlow.js model loaded successfully!");
     
-    // Инициализируем простой токенизатор (замените на реальный если есть)
-    initializeTokenizer();
+    // Загружаем токенизатор
+    await loadTokenizer();
+    console.log("Tokenizer loaded successfully!");
     
     return true;
   } catch (error) {
-    console.error("Failed to load TensorFlow.js model:", error);
+    console.error("Failed to load model or tokenizer:", error);
     tfModel = null;
+    tokenizer = null;
     
     // Показываем ошибку пользователю
     const errorEl = document.getElementById("predict-error");
@@ -54,24 +55,105 @@ async function loadTFModel() {
   }
 }
 
-function initializeTokenizer() {
-  // Простой токенизатор для примера
-  // В реальном приложении используйте тот же токенизатор, что и при обучении
-  tokenizer = {
+async function loadTokenizer() {
+  try {
+    const response = await fetch('tokenizer.json');
+    if (!response.ok) {
+      throw new Error(`Failed to load tokenizer: ${response.status}`);
+    }
+    
+    const tokenizerData = await response.json();
+    
+    // Создаем объект токенизатора на основе данных
+    tokenizer = {
+      wordIndex: tokenizerData.word_index || {},
+      indexWord: tokenizerData.index_word || {},
+      numWords: tokenizerData.config?.num_words || 30000,
+      oovToken: tokenizerData.config?.oov_token || "<OOV>",
+      filters: tokenizerData.config?.filters || "!\"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n",
+      lower: tokenizerData.config?.lower !== false,
+      split: tokenizerData.config?.split || " ",
+      charLevel: tokenizerData.config?.char_level || false,
+      documentCount: tokenizerData.config?.document_count || 0,
+      
+      // Метод для преобразования текста в последовательности
+      textsToSequences: function(texts) {
+        return texts.map(text => {
+          // Приводим к нижнему регистру если нужно
+          let processedText = this.lower ? text.toLowerCase() : text;
+          
+          // Удаляем фильтруемые символы
+          if (this.filters) {
+            const filterRegex = new RegExp(`[${this.filters.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]`, 'g');
+            processedText = processedText.replace(filterRegex, ' ');
+          }
+          
+          // Разбиваем на токены
+          const tokens = processedText.split(this.split).filter(token => token.length > 0);
+          
+          // Преобразуем токены в индексы
+          const sequence = tokens.map(token => {
+            // Если токен есть в словаре, возвращаем его индекс
+            if (this.wordIndex[token]) {
+              return this.wordIndex[token];
+            }
+            // Если нет, возвращаем индекс OOV токена или 1
+            return this.wordIndex[this.oovToken] || 1;
+          });
+          
+          // Обрезаем до максимальной длины модели (300)
+          const maxLength = 300;
+          if (sequence.length > maxLength) {
+            return sequence.slice(0, maxLength);
+          } else {
+            // Дополняем нулями до нужной длины
+            return sequence.concat(new Array(maxLength - sequence.length).fill(0));
+          }
+        });
+      },
+      
+      // Дополнительный метод для просмотра токенов
+      tokenize: function(text) {
+        let processedText = this.lower ? text.toLowerCase() : text;
+        
+        if (this.filters) {
+          const filterRegex = new RegExp(`[${this.filters.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]`, 'g');
+          processedText = processedText.replace(filterRegex, ' ');
+        }
+        
+        return processedText.split(this.split).filter(token => token.length > 0);
+      }
+    };
+    
+    console.log(`Tokenizer loaded with ${Object.keys(tokenizer.wordIndex).length} words`);
+    return tokenizer;
+    
+  } catch (error) {
+    console.error("Failed to load tokenizer:", error);
+    // Создаем простой токенизатор как запасной вариант
+    tokenizer = createFallbackTokenizer();
+    return tokenizer;
+  }
+}
+
+function createFallbackTokenizer() {
+  console.log("Creating fallback tokenizer...");
+  
+  return {
     wordIndex: {},
+    numWords: 30000,
+    oovToken: "<OOV>",
     maxLength: 300,
     
     textsToSequences: function(texts) {
       return texts.map(text => {
-        // Простая токенизация по словам
         const words = text.toLowerCase()
           .replace(/[^\w\s]/g, ' ')
           .split(/\s+/)
           .filter(word => word.length > 0);
         
-        // Преобразуем слова в индексы (упрощенно)
+        // Простая хэш-функция для создания индексов
         const sequence = words.map(word => {
-          // Простая хэш-функция для создания индексов
           let hash = 0;
           for (let i = 0; i < word.length; i++) {
             hash = ((hash << 5) - hash) + word.charCodeAt(i);
@@ -80,7 +162,6 @@ function initializeTokenizer() {
           return Math.abs(hash) % 29999 + 1; // 1-30000 для embedding
         });
         
-        // Обрезаем или дополняем до maxLength
         if (sequence.length > this.maxLength) {
           return sequence.slice(0, this.maxLength);
         } else {
@@ -196,12 +277,12 @@ function setupPredictionForm() {
 // Предсказание с помощью TensorFlow.js модели
 async function predictWithTFModel(text) {
   if (!tfModel || !tokenizer) {
-    throw new Error("Model not loaded");
+    throw new Error("Model or tokenizer not loaded");
   }
   
   // Подготавливаем текст для модели
   const sequences = tokenizer.textsToSequences([text]);
-  const tensor = tf.tensor2d(sequences, [1, tokenizer.maxLength]);
+  const tensor = tf.tensor2d(sequences, [1, 300]); // max_length = 300
   
   // Делаем предсказание
   const prediction = tfModel.predict(tensor);
