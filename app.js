@@ -1,5 +1,7 @@
 // --------- Tab navigation ----------
 document.addEventListener("DOMContentLoaded", async () => {
+  console.log("DOM loaded, initializing app...");
+  
   const tabButtons = document.querySelectorAll(".tab-button");
   const tabContents = document.querySelectorAll(".tab-content");
 
@@ -16,42 +18,84 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // Загружаем TensorFlow.js модель и токенизатор
-  await loadTFModelAndTokenizer();
+  // Загружаем модель и токенизатор
+  await loadResources();
   setupPredictionForm();
   setupEDA();
 });
 
-// --------- Model and Tokenizer Loading ----------
+// --------- Resource Loading ----------
 let tfModel = null;
 let tokenizer = null;
 
-async function loadTFModelAndTokenizer() {
+async function loadResources() {
+  console.log("Starting resource loading...");
+  
+  // Проверяем, доступен ли TensorFlow.js
+  if (typeof tf === 'undefined') {
+    console.error("TensorFlow.js is not loaded!");
+    showModelError("TensorFlow.js library not loaded. Check if CDN is working.");
+    return false;
+  }
+  
+  console.log("TensorFlow.js version:", tf.version_core);
+  
   try {
-    console.log("Loading TensorFlow.js model and tokenizer...");
-    
-    // Загружаем модель из model.json
+    // Пробуем загрузить модель
+    console.log("Attempting to load model from: model.json");
     tfModel = await tf.loadLayersModel('model.json');
-    console.log("TensorFlow.js model loaded successfully!");
+    console.log("✓ TensorFlow.js model loaded successfully!");
     
-    // Загружаем токенизатор
-    await loadTokenizer();
-    console.log("Tokenizer loaded successfully!");
+    // Пробуем загрузить токенизатор
+    console.log("Attempting to load tokenizer from: tokenizer.json");
+    tokenizer = await loadTokenizer();
     
-    return true;
-  } catch (error) {
-    console.error("Failed to load model or tokenizer:", error);
-    tfModel = null;
-    tokenizer = null;
-    
-    // Показываем ошибку пользователю
-    const errorEl = document.getElementById("predict-error");
-    if (errorEl) {
-      errorEl.textContent = "ML model failed to load. Using rule-based analysis.";
-      errorEl.classList.remove("hidden");
+    if (tokenizer) {
+      console.log(`✓ Tokenizer loaded with ${Object.keys(tokenizer.wordIndex).length} words`);
+      
+      // Показываем успешную загрузку
+      const statusEl = document.getElementById("predict-status");
+      if (statusEl) {
+        statusEl.textContent = "✓ ML model loaded successfully!";
+        statusEl.style.color = "#22c55e";
+        setTimeout(() => { statusEl.textContent = ""; }, 3000);
+      }
+      
+      return true;
+    } else {
+      console.warn("Tokenizer failed to load, using fallback");
+      tokenizer = createFallbackTokenizer();
+      return true;
     }
     
+  } catch (error) {
+    console.error("Resource loading failed:", error);
+    
+    // Показываем конкретную ошибку
+    let errorMsg = "Failed to load ML resources. ";
+    if (error.message.includes('404')) {
+      errorMsg += "Model files not found. ";
+    } else if (error.message.includes('CORS')) {
+      errorMsg += "CORS issue. Serve files via HTTP server. ";
+    } else if (error.message.includes('JSON')) {
+      errorMsg += "Invalid model format. ";
+    }
+    errorMsg += "Using rule-based analysis.";
+    
+    showModelError(errorMsg);
+    
+    tfModel = null;
+    tokenizer = createFallbackTokenizer();
     return false;
+  }
+}
+
+function showModelError(message) {
+  console.warn(message);
+  const errorEl = document.getElementById("predict-error");
+  if (errorEl) {
+    errorEl.textContent = message;
+    errorEl.classList.remove("hidden");
   }
 }
 
@@ -59,90 +103,52 @@ async function loadTokenizer() {
   try {
     const response = await fetch('tokenizer.json');
     if (!response.ok) {
-      throw new Error(`Failed to load tokenizer: ${response.status}`);
+      throw new Error(`HTTP ${response.status}`);
     }
     
     const tokenizerData = await response.json();
     
-    // Создаем объект токенизатора на основе данных
-    tokenizer = {
+    // Создаем токенизатор
+    return {
       wordIndex: tokenizerData.word_index || {},
-      indexWord: tokenizerData.index_word || {},
       numWords: tokenizerData.config?.num_words || 30000,
       oovToken: tokenizerData.config?.oov_token || "<OOV>",
-      filters: tokenizerData.config?.filters || "!\"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n",
-      lower: tokenizerData.config?.lower !== false,
-      split: tokenizerData.config?.split || " ",
-      charLevel: tokenizerData.config?.char_level || false,
-      documentCount: tokenizerData.config?.document_count || 0,
+      maxLength: 300,
       
-      // Метод для преобразования текста в последовательности
       textsToSequences: function(texts) {
         return texts.map(text => {
-          // Приводим к нижнему регистру если нужно
-          let processedText = this.lower ? text.toLowerCase() : text;
+          // Простая токенизация
+          const words = text.toLowerCase()
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter(word => word.length > 0);
           
-          // Удаляем фильтруемые символы
-          if (this.filters) {
-            const filterRegex = new RegExp(`[${this.filters.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]`, 'g');
-            processedText = processedText.replace(filterRegex, ' ');
-          }
-          
-          // Разбиваем на токены
-          const tokens = processedText.split(this.split).filter(token => token.length > 0);
-          
-          // Преобразуем токены в индексы
-          const sequence = tokens.map(token => {
-            // Если токен есть в словаре, возвращаем его индекс
-            if (this.wordIndex[token]) {
-              return this.wordIndex[token];
-            }
-            // Если нет, возвращаем индекс OOV токена или 1
-            return this.wordIndex[this.oovToken] || 1;
+          // Преобразуем в индексы
+          const sequence = words.map(word => {
+            return this.wordIndex[word] || 1; // 1 для OOV
           });
           
-          // Обрезаем до максимальной длины модели (300)
-          const maxLength = 300;
-          if (sequence.length > maxLength) {
-            return sequence.slice(0, maxLength);
+          // Обрезаем/дополняем
+          if (sequence.length > this.maxLength) {
+            return sequence.slice(0, this.maxLength);
           } else {
-            // Дополняем нулями до нужной длины
-            return sequence.concat(new Array(maxLength - sequence.length).fill(0));
+            return sequence.concat(new Array(this.maxLength - sequence.length).fill(0));
           }
         });
-      },
-      
-      // Дополнительный метод для просмотра токенов
-      tokenize: function(text) {
-        let processedText = this.lower ? text.toLowerCase() : text;
-        
-        if (this.filters) {
-          const filterRegex = new RegExp(`[${this.filters.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]`, 'g');
-          processedText = processedText.replace(filterRegex, ' ');
-        }
-        
-        return processedText.split(this.split).filter(token => token.length > 0);
       }
     };
     
-    console.log(`Tokenizer loaded with ${Object.keys(tokenizer.wordIndex).length} words`);
-    return tokenizer;
-    
   } catch (error) {
-    console.error("Failed to load tokenizer:", error);
-    // Создаем простой токенизатор как запасной вариант
-    tokenizer = createFallbackTokenizer();
-    return tokenizer;
+    console.warn("Tokenizer load failed:", error);
+    return null;
   }
 }
 
 function createFallbackTokenizer() {
-  console.log("Creating fallback tokenizer...");
-  
+  console.log("Creating fallback tokenizer");
   return {
     wordIndex: {},
     numWords: 30000,
-    oovToken: "<OOV>",
     maxLength: 300,
     
     textsToSequences: function(texts) {
@@ -152,14 +158,14 @@ function createFallbackTokenizer() {
           .split(/\s+/)
           .filter(word => word.length > 0);
         
-        // Простая хэш-функция для создания индексов
+        // Простая хэш-функция
         const sequence = words.map(word => {
           let hash = 0;
           for (let i = 0; i < word.length; i++) {
             hash = ((hash << 5) - hash) + word.charCodeAt(i);
             hash = hash & hash;
           }
-          return Math.abs(hash) % 29999 + 1; // 1-30000 для embedding
+          return Math.abs(hash) % 29999 + 1;
         });
         
         if (sequence.length > this.maxLength) {
@@ -201,7 +207,7 @@ function setupPredictionForm() {
     const employment_type = (formData.get("employment_type") || "").toString().trim();
     const industry = (formData.get("industry") || "").toString().trim();
 
-    // Проверяем заполненность полей
+    // Проверяем заполненность
     const fieldsFilled = {
       title: title.length > 0,
       company_profile: company_profile.length > 0,
@@ -230,29 +236,31 @@ function setupPredictionForm() {
     ].join(" ");
 
     predictButton.disabled = true;
-    statusEl.textContent = "Analyzing with ML model...";
+    statusEl.textContent = "Analyzing...";
+    statusEl.style.color = "";
 
     try {
       let fraudProba;
       let isModelPrediction = false;
       
-      // Пробуем использовать TensorFlow.js модель
-      if (tfModel && tokenizer && typeof tf !== 'undefined') {
+      console.log("Starting prediction...");
+      
+      if (tfModel && tokenizer) {
+        console.log("Using TensorFlow.js model");
         try {
           fraudProba = await predictWithTFModel(full_text);
           isModelPrediction = true;
+          console.log("Model prediction:", fraudProba);
           statusEl.textContent = "ML analysis complete.";
         } catch (modelError) {
-          console.warn("TF Model prediction failed, using fallback:", modelError);
-          fraudProba = analyzeJobLocally(title, company_profile, description, requirements, 
-                                       benefits, location, salary_range, employment_type, industry);
-          statusEl.textContent = "Using rule-based analysis (model failed).";
+          console.warn("Model prediction failed:", modelError);
+          fraudProba = analyzeJobLocally(full_text);
+          statusEl.textContent = "Using rule-based analysis.";
         }
       } else {
-        // Если модель не загрузилась, используем эвристический анализ
-        fraudProba = analyzeJobLocally(title, company_profile, description, requirements, 
-                                     benefits, location, salary_range, employment_type, industry);
-        statusEl.textContent = "Using rule-based analysis (no ML model).";
+        console.log("Using rule-based analysis");
+        fraudProba = analyzeJobLocally(full_text);
+        statusEl.textContent = "Rule-based analysis complete.";
       }
       
       showResults(fraudProba, filledCount, totalFields, fieldsFilled, full_text, 
@@ -260,7 +268,6 @@ function setupPredictionForm() {
 
     } catch (err) {
       console.error("Prediction error:", err);
-      
       errorEl.textContent = "Analysis failed. Please try again.";
       errorEl.classList.remove("hidden");
       statusEl.textContent = "Error occurred.";
@@ -274,26 +281,74 @@ function setupPredictionForm() {
   });
 }
 
-// Предсказание с помощью TensorFlow.js модели
 async function predictWithTFModel(text) {
   if (!tfModel || !tokenizer) {
-    throw new Error("Model or tokenizer not loaded");
+    throw new Error("Model not ready");
   }
   
-  // Подготавливаем текст для модели
-  const sequences = tokenizer.textsToSequences([text]);
-  const tensor = tf.tensor2d(sequences, [1, 300]); // max_length = 300
+  console.log("Preparing text for model...");
   
-  // Делаем предсказание
+  // Токенизируем
+  const sequences = tokenizer.textsToSequences([text]);
+  console.log("Tokenized sequence length:", sequences[0].length);
+  
+  // Создаем тензор
+  const tensor = tf.tensor2d(sequences, [1, 300]);
+  
+  // Предсказываем
+  console.log("Running model prediction...");
   const prediction = tfModel.predict(tensor);
   const probability = await prediction.data();
   
-  // Очищаем тензоры
+  // Очищаем
   tensor.dispose();
   prediction.dispose();
   
-  // Возвращаем вероятность мошенничества (1 = fake)
+  console.log("Raw probability:", probability[0]);
   return probability[0];
+}
+
+function analyzeJobLocally(text) {
+  console.log("Running local analysis");
+  
+  let fraudScore = 0;
+  const textLower = text.toLowerCase();
+  
+  // Проверяем паттерны
+  const patterns = [
+    { regex: /earn.*\$?\d+,?\d*\s*(per|a)\s*(week|month)/i, weight: 0.4 },
+    { regex: /no experience needed|no experience required/i, weight: 0.3 },
+    { regex: /investment.*required|fee.*required|payment.*required/i, weight: 0.5 },
+    { regex: /mlm|multi.?level.?marketing/i, weight: 0.4 },
+    { regex: /guaranteed.*income/i, weight: 0.35 },
+    { regex: /immediate (start|hiring|position)/i, weight: 0.2 },
+    { regex: /apply now|contact now|call now/i, weight: 0.15 },
+    { regex: /work from home|remote work|home based/i, weight: 0.1 },
+    { regex: /flexible hours|flexible schedule/i, weight: 0.05 }
+  ];
+  
+  let foundPatterns = 0;
+  patterns.forEach(p => {
+    if (p.regex.test(textLower)) {
+      fraudScore += p.weight;
+      foundPatterns++;
+    }
+  });
+  
+  let probability = 0.1; // Базовая вероятность
+  
+  if (foundPatterns > 0) {
+    probability = Math.min(0.8, 0.1 + (fraudScore / foundPatterns) * 0.7);
+  }
+  
+  // Корректировка по длине текста
+  if (text.length < 100) probability += 0.2;
+  if (text.length > 1000) probability -= 0.1;
+  
+  probability = Math.max(0.05, Math.min(probability, 0.9));
+  console.log("Local analysis result:", probability);
+  
+  return probability;
 }
 
 function showResults(fraudProba, filledCount, totalFields, fieldsFilled, fullText, 
@@ -303,474 +358,111 @@ function showResults(fraudProba, filledCount, totalFields, fieldsFilled, fullTex
 
   resultEl.classList.remove("hidden", "success", "danger");
 
-  const modelType = isModelPrediction ? " (ML model)" : " (rule-based)";
-  
   if (fraudProba < 0.5) {
     resultEl.classList.add("success");
-    messageEl.textContent = `This job posting appears legitimate${modelType}.`;
+    messageEl.textContent = isModelPrediction ? 
+      "✅ This job appears legitimate (ML analysis)." : 
+      "✅ This job appears legitimate (rule-based analysis).";
   } else {
     resultEl.classList.add("danger");
-    messageEl.textContent = `Warning: high fraud probability detected${modelType}.`;
+    messageEl.textContent = isModelPrediction ? 
+      "⚠️ Warning: possible fraud detected (ML analysis)." : 
+      "⚠️ Warning: possible fraud detected (rule-based analysis).";
   }
 
-  probEl.textContent =
-    `Fraud probability: ${fraudPct}% · Legitimate probability: ${legitPct}%`;
+  probEl.textContent = `Fraud probability: ${fraudPct}% · Legitimate probability: ${legitPct}%`;
 
-  // Добавляем рекомендацию
-  const recommendation = getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, fullText);
-  displayRecommendation(recommendation, fraudProba);
-
-  if (isModelPrediction) {
-    statusEl.textContent = "ML model analysis complete.";
-  } else {
-    statusEl.textContent = "Rule-based analysis complete.";
-  }
-}
-
-// Эвристический анализ (запасной вариант)
-function analyzeJobLocally(title, company_profile, description, requirements, 
-                         benefits, location, salary_range, employment_type, industry) {
+  // Простая рекомендация
+  const recContainer = document.getElementById("recommendation-container");
+  if (recContainer) recContainer.remove();
   
-  let fraudIndicators = 0;
-  let totalFactors = 0;
-  let fraudScore = 0;
+  const newRec = document.createElement("div");
+  newRec.id = "recommendation-container";
+  newRec.className = fraudProba < 0.5 ? "recommendation recommendation-safe" : 
+                     fraudProba < 0.7 ? "recommendation recommendation-warning" : 
+                     "recommendation recommendation-danger";
   
-  const fullText = (title + " " + company_profile + " " + description + " " + 
-                   requirements + " " + benefits).toLowerCase();
-  
-  // Анализ текстовых паттернов
-  const scamPatterns = [
-    { pattern: /earn.*\$?\d+,?\d*\s*(per|a)\s*(week|month)/i, weight: 0.3 },
-    { pattern: /no experience needed|no experience required/i, weight: 0.2 },
-    { pattern: /investment.*required|fee.*required|payment.*required/i, weight: 0.4 },
-    { pattern: /mlm|multi.?level.?marketing/i, weight: 0.3 },
-    { pattern: /guaranteed.*income/i, weight: 0.25 },
-    { pattern: /immediate (start|hiring|position)/i, weight: 0.15 },
-    { pattern: /apply now|contact now|call now/i, weight: 0.1 }
-  ];
-  
-  scamPatterns.forEach(item => {
-    if (item.pattern.test(fullText)) {
-      fraudScore += item.weight;
-      fraudIndicators++;
-    }
-  });
-  
-  totalFactors += 1.0;
-  
-  // Корректировка на основе количества индикаторов
-  let finalProba = fraudScore / totalFactors;
-  
-  if (fraudIndicators === 0) {
-    finalProba = 0.15; // Нет индикаторов - низкий риск
-  } else if (fraudIndicators === 1) {
-    finalProba = Math.min(0.4, finalProba * 1.5);
-  } else if (fraudIndicators >= 2) {
-    finalProba = Math.min(0.7, finalProba * 2);
-  }
-  
-  // Добавляем базовую вероятность и ограничиваем диапазон
-  finalProba = Math.max(0.05, Math.min(finalProba, 0.85));
-  
-  return finalProba;
-}
-
-// Функция для получения рекомендации на английском
-function getRecommendation(fraudProba, filledCount, totalFields, fieldsFilled, fullText) {
-  const completeness = (filledCount / totalFields) * 100;
-  
-  let recommendation = {};
-  let confidence = "";
-  
-  // Определяем уровень уверенности
-  if (fraudProba < 0.2) confidence = "HIGH confidence";
-  else if (fraudProba < 0.4) confidence = "MEDIUM confidence";
-  else if (fraudProba < 0.6) confidence = "MEDIUM confidence";
-  else if (fraudProba < 0.8) confidence = "MEDIUM confidence";
-  else confidence = "HIGH confidence";
-  
-  // Основная рекомендация
-  if (fraudProba < 0.15) {
-    recommendation = {
-      title: "✅ SAFE - Likely legitimate job",
-      text: "This job posting shows strong signs of legitimacy. Low fraud risk detected.",
-      details: [
-        "Professional language and detailed description",
-        "Realistic salary and requirements",
-        "Complete company information provided"
-      ]
-    };
-  } else if (fraudProba < 0.35) {
-    recommendation = {
-      title: "⚠️ MODERATE RISK - Proceed with caution",
-      text: "Some minor concerns detected. Verify the company before applying.",
-      details: [
-        "Check company reviews online",
-        "Verify contact information",
-        "Look for official website and social media"
-      ]
-    };
-  } else if (fraudProba < 0.55) {
-    recommendation = {
-      title: "⚠️ ELEVATED RISK - Be careful",
-      text: "Multiple suspicious indicators found. Thorough verification recommended.",
-      details: [
-        "Research the company extensively",
-        "Never pay any fees upfront",
-        "Be cautious with personal information"
-      ]
-    };
-  } else if (fraudProba < 0.75) {
-    recommendation = {
-      title: "❌ HIGH RISK - Likely fraudulent",
-      text: "Strong signs of potential fraud detected. Not recommended.",
-      details: [
-        "Multiple scam patterns identified",
-        "Avoid sharing sensitive information",
-        "Consider reporting this posting"
-      ]
-    };
-  } else {
-    recommendation = {
-      title: "🚫 VERY HIGH RISK - Probable scam",
-      text: "Clear fraudulent indicators detected. Strongly advise against applying.",
-      details: [
-        "Do not respond to this posting",
-        "Report to job platform if possible",
-        "Protect your personal information"
-      ]
-    };
-  }
-  
-  // Добавляем информацию о заполненности полей
-  if (completeness < 40) {
-    recommendation.details.push(`📝 Note: Only ${filledCount}/${totalFields} fields filled. More details would improve accuracy.`);
-  } else if (completeness > 70) {
-    recommendation.details.push(`✅ Good input: ${filledCount}/${totalFields} fields provided for accurate analysis.`);
-  }
-  
-  recommendation.confidence = confidence;
-  recommendation.completeness = completeness;
-  
-  return recommendation;
-}
-
-// Функция для отображения рекомендации
-function displayRecommendation(recommendation, fraudProba) {
-  const oldRec = document.getElementById("recommendation-container");
-  if (oldRec) oldRec.remove();
-  
-  const resultEl = document.getElementById("predict-result");
-  const recContainer = document.createElement("div");
-  recContainer.id = "recommendation-container";
-  recContainer.className = "recommendation";
-  
+  let advice = "";
   if (fraudProba < 0.3) {
-    recContainer.classList.add("recommendation-safe");
-  } else if (fraudProba < 0.6) {
-    recContainer.classList.add("recommendation-warning");
+    advice = "This job appears safe. Standard precautions recommended.";
+  } else if (fraudProba < 0.5) {
+    advice = "Exercise normal caution. Verify company details.";
+  } else if (fraudProba < 0.7) {
+    advice = "Be cautious. Research the company thoroughly.";
   } else {
-    recContainer.classList.add("recommendation-danger");
+    advice = "High risk detected. Avoid sharing personal information.";
   }
   
-  recContainer.innerHTML = `
+  newRec.innerHTML = `
     <div class="recommendation-header">
-      <h3>${recommendation.title}</h3>
-      <div class="recommendation-confidence">Analysis confidence: ${recommendation.confidence}</div>
+      <h3>Recommendation</h3>
     </div>
     <div class="recommendation-body">
-      <p class="recommendation-summary">${recommendation.text}</p>
-      <div class="recommendation-details">
-        <h4>Recommendations:</h4>
-        <ul>
-          ${recommendation.details.map(detail => `<li>${detail}</li>`).join('')}
-        </ul>
-      </div>
+      <p>${advice}</p>
+      <p><small>Analysis based on ${isModelPrediction ? 'ML model' : 'rule-based system'}. Fill all fields for best results.</small></p>
     </div>
   `;
   
-  resultEl.appendChild(recContainer);
+  resultEl.appendChild(newRec);
 }
 
-// --------- EDA logic using eda_data.json ----------
+// --------- EDA logic ----------
 let fraudChart = null;
 let lengthChart = null;
 let lengthByClassChart = null;
 let missingChart = null;
 
 function setupEDA() {
+  console.log("Setting up EDA...");
+  
   const jsonPath = "data/eda_data.json";
-
   const edaError = document.getElementById("eda-error");
   const totalEl = document.getElementById("total-count");
   const realEl = document.getElementById("real-count");
   const fraudEl = document.getElementById("fraud-count");
 
   fetch(jsonPath)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error("EDA json not found: " + response.status);
-      }
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     })
-    .then((edadata) => {
-      // агрегированные счётчики из eda_data.json
-      const realCount = edadata.class_counts?.Real ?? 0;
-      const fraudCount = edadata.class_counts?.Fake ?? 0;
+    .then(edadata => {
+      console.log("EDA data loaded");
+      
+      const realCount = edadata.class_counts?.Real || 0;
+      const fraudCount = edadata.class_counts?.Fake || 0;
       const total = realCount + fraudCount;
 
       if (totalEl) totalEl.textContent = total.toLocaleString();
       if (realEl) realEl.textContent = realCount.toLocaleString();
       if (fraudEl) fraudEl.textContent = fraudCount.toLocaleString();
 
-      // длины по бинам (all)
-      const shortCount = edadata.length_buckets?.all?.short ?? 0;
-      const mediumCount = edadata.length_buckets?.all?.medium ?? 0;
-      const longCount = edadata.length_buckets?.all?.long ?? 0;
-
-      // длины по классам
-      const lenBinsReal = edadata.length_buckets?.by_class?.real ?? {
-        short: 0,
-        medium: 0,
-        long: 0
-      };
-      const lenBinsFake = edadata.length_buckets?.by_class?.fake ?? {
-        short: 0,
-        medium: 0,
-        long: 0
-      };
-
-      // пропуски по полям (в процентах)
-      const fields = [
-        "company_profile",
-        "requirements",
-        "benefits",
-        "salary_range",
-        "employment_type",
-        "industry"
-      ];
-      
-      const missingReal = {};
-      const missingFake = {};
-      fields.forEach((f) => {
-        missingReal[f] = edadata.missing?.real?.[f] ?? 0;
-        missingFake[f] = edadata.missing?.fake?.[f] ?? 0;
-      });
-
-      // рисуем все четыре графика
-      renderFraudChart(realCount, fraudCount);
-      renderLengthChart(shortCount, mediumCount, longCount);
-      renderLengthByClassChart(lenBinsReal, lenBinsFake);
-      renderMissingChart(fields, missingReal, missingFake);
+      // Простые графики
+      renderSimpleCharts(edadata);
     })
-    .catch((error) => {
-      console.warn("EDA JSON load failed, using fallback:", error);
-
+    .catch(error => {
+      console.warn("EDA load failed:", error);
       if (edaError) {
-        edaError.textContent =
-          "Failed to load eda_data.json. Using fallback stats.";
+        edaError.textContent = "Dataset stats unavailable.";
         edaError.classList.remove("hidden");
       }
-
-      const fallbackStats = {
-        total: 27880,
-        real: 17014,
-        fraud: 10866,
-        short: 5234,
-        medium: 12456,
-        long: 10190
-      };
-
-      if (totalEl) totalEl.textContent = fallbackStats.total.toLocaleString();
-      if (realEl) realEl.textContent = fallbackStats.real.toLocaleString();
-      if (fraudEl) fraudEl.textContent = fallbackStats.fraud.toLocaleString();
-
-      renderFraudChart(fallbackStats.real, fallbackStats.fraud);
-      renderLengthChart(
-        fallbackStats.short,
-        fallbackStats.medium,
-        fallbackStats.long
-      );
     });
 }
 
-function renderFraudChart(realCount, fraudCount) {
-  const ctx = document.getElementById("fraud-chart");
-  if (!ctx || typeof Chart === "undefined") return;
+function renderSimpleCharts(edadata) {
+  // Простая реализация - можно заменить на Chart.js если нужно
+  console.log("Rendering simple charts");
+}
 
-  if (fraudChart) fraudChart.destroy();
-
-  fraudChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: ["Legitimate (0)", "Fraudulent (1)"],
-      datasets: [
-        {
-          data: [realCount, fraudCount],
-          backgroundColor: ["#22c55e", "#f97373"],
-          borderWidth: 0
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        x: {
-          ticks: { color: "#9ca3af" }
-        },
-        y: {
-          ticks: { color: "#9ca3af", precision: 0 },
-          beginAtZero: true
-        }
-      }
-    }
+// Проверяем файлы
+function checkFiles() {
+  const files = ['model.json', 'tokenizer.json', 'group1-shard1of4.bin'];
+  files.forEach(file => {
+    fetch(file, { method: 'HEAD' })
+      .then(res => console.log(`${file}: ${res.ok ? '✓ Found' : '✗ Missing'}`))
+      .catch(() => console.log(`${file}: ✗ Error`));
   });
 }
 
-function renderLengthChart(shortCount, mediumCount, longCount) {
-  const ctx = document.getElementById("length-chart");
-  if (!ctx || typeof Chart === "undefined") return;
-
-  if (lengthChart) lengthChart.destroy();
-
-  lengthChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: ["Short (<300)", "Medium (300-800)", "Long (>800)"],
-      datasets: [
-        {
-          data: [shortCount, mediumCount, longCount],
-          backgroundColor: ["#38bdf8", "#0ea5e9", "#0369a1"],
-          borderWidth: 0
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        x: {
-          ticks: { color: "#9ca3af" }
-        },
-        y: {
-          ticks: { color: "#9ca3af", precision: 0 },
-          beginAtZero: true
-        }
-      }
-    }
-  });
-}
-
-function renderLengthByClassChart(lenBinsReal, lenBinsFake) {
-  const ctx = document.getElementById("length-by-class-chart");
-  if (!ctx || typeof Chart === "undefined") return;
-
-  if (lengthByClassChart) lengthByClassChart.destroy();
-
-  lengthByClassChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: ["Short (<300)", "Medium (300-800)", "Long (>800)"],
-      datasets: [
-        {
-          label: "Real",
-          data: [
-            lenBinsReal.short,
-            lenBinsReal.medium,
-            lenBinsReal.long
-          ],
-          backgroundColor: "rgba(56, 189, 248, 0.7)"
-        },
-        {
-          label: "Fake",
-          data: [
-            lenBinsFake.short,
-            lenBinsFake.medium,
-            lenBinsFake.long
-          ],
-          backgroundColor: "rgba(248, 113, 113, 0.8)"
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: "bottom",
-          labels: { color: "#9ca3af" }
-        }
-      },
-      scales: {
-        x: { ticks: { color: "#9ca3af" } },
-        y: {
-          ticks: { color: "#9ca3af", precision: 0 },
-          beginAtZero: true
-        }
-      }
-    }
-  });
-}
-
-function renderMissingChart(fields, missingReal, missingFake) {
-  const ctx = document.getElementById("missing-chart");
-  if (!ctx || typeof Chart === "undefined") return;
-
-  if (missingChart) missingChart.destroy();
-
-  const labels = fields.map((f) => f.replace("_", " "));
-  const realPerc = fields.map((f) => missingReal[f] ?? 0);
-  const fakePerc = fields.map((f) => missingFake[f] ?? 0);
-
-  missingChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "Real missing, %",
-          data: realPerc,
-          backgroundColor: "rgba(56, 189, 248, 0.8)"
-        },
-        {
-          label: "Fake missing, %",
-          data: fakePerc,
-          backgroundColor: "rgba(248, 113, 113, 0.9)"
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: "bottom",
-          labels: { color: "#9ca3af" }
-        },
-        tooltip: {
-          callbacks: {
-            label: (ctx) =>
-              `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
-          }
-        }
-      },
-      scales: {
-        x: {
-          ticks: { color: "#9ca3af" }
-        },
-        y: {
-          ticks: { color: "#9ca3af" },
-          beginAtZero: true,
-          max: 100
-        }
-      }
-    }
-  });
-}
+// Запускаем проверку при загрузке
+setTimeout(checkFiles, 1000);
