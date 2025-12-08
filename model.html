@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>JobShield – EDA Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.31.1.min.js"></script>
+  <style>
+    body { font-family: Arial; max-width: 1000px; margin: 40px auto; }
+    .chart { margin-bottom: 60px; }
+  </style>
+</head>
+<body>
+
+<h1>Interactive EDA Dashboard</h1>
+<p><a href="index.html">← Back to detector</a></p>
+
+<div id="classDist" class="chart"></div>
+<div id="textLens" class="chart"></div>
+<div id="missing" class="chart"></div>
+<div id="cmatrix" class="chart"></div>
+
+<script>
+async function loadEDA() {
+  const eda = await fetch("data/eda_data.json").then(r => r.json());
+
+  // Class distribution
+  Plotly.newPlot("classDist", [{
+    x: ["Real", "Fake"],
+    y: [eda.class_counts.Real, eda.class_counts.Fake],
+    type: "bar"
+  }], { title: "Class Distribution" });
+
+  // Text length distribution
+  Plotly.newPlot("textLens", [{
+    name: "Real",
+    x: eda.lengths.real,
+    type: "histogram",
+    opacity: 0.6
+  }, {
+    name: "Fake",
+    x: eda.lengths.fake,
+    type: "histogram",
+    opacity: 0.6
+  }], {
+    title: "Text Length Distribution",
+    barmode: "overlay"
+  });
+
+  // Missing data
+  Plotly.newPlot("missing", [{
+    name: "Real",
+    x: eda.missing.columns,
+    y: eda.missing.real,
+    type: "bar"
+  }, {
+    name: "Fake",
+    x: eda.missing.columns,
+    y: eda.missing.fake,
+    type: "bar"
+  }], {
+    title: "Missing Data per Feature (Real vs Fake)",
+    barmode: "group"
+  });
+
+  // Confusion matrix
+  Plotly.newPlot("cmatrix", [{
+    z: eda.confusion_matrix.matrix,
+    x: eda.confusion_matrix.labels_pred,
+    y: eda.confusion_matrix.labels_true,
+    type: "heatmap",
+    colorscale: "Blues"
+  }], { title:@4.19.0/dist/tf.min.js"></script>
+  <style>
+    body { font-family: });
+}
+
+loadEDA();
+</script>
+
+</body>
+</html>
