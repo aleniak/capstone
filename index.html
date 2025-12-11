@@ -1003,3 +1003,32 @@
         
         if (successIndicators.length > 0 && probability < 0.5) {
           details.push("<br><strong>✅ Positive
+
+
+
+<!-- Добавьте этот блок после формы Job Check -->
+<section class="parse-section">
+  <h3>Or Parse Job from URL</h3>
+  <p class="section-description">
+    Paste a job URL from LinkedIn, Indeed, Glassdoor, etc. to auto-fill the form.
+  </p>
+  
+  <form id="parse-form" class="form">
+    <div class="form-row">
+      <label for="job-url">Job URL</label>
+      <input type="url" id="job-url" name="job-url" 
+             placeholder="https://www.linkedin.com/jobs/view/..." />
+    </div>
+    
+    <div class="form-actions">
+      <button type="submit" id="parse-button">Parse Job</button>
+      <span id="parse-status" class="status"></span>
+    </div>
+  </form>
+  
+  <div id="parse-error" class="alert hidden"></div>
+  
+  <div id="job-preview" class="job-preview hidden">
+    <div id="preview-content"></div>
+  </div>
+</section>
