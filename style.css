@@ -403,3 +403,248 @@ body {
   width: 100% !important;
   height: 260px !important;
 }
+
+
+
+
+/* Стили для парсера */
+.parse-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 2rem;
+}
+
+.parse-section h3 {
+  color: #1e40af;
+  margin-bottom: 0.5rem;
+}
+
+.job-preview {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  margin-top: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.preview-section h4 {
+  color: #1e40af;
+  margin-bottom: 1rem;
+  font-size: 1.2rem;
+}
+
+.preview-field {
+  margin-bottom: 0.8rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+}
+
+.preview-field strong {
+  min-width: 80px;
+  color: #4b5563;
+}
+
+.preview-field:last-child {
+  border-bottom: none;
+}
+
+.preview-note {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: #6b7280;
+  font-style: italic;
+  padding: 0.8rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  border-left: 3px solid #3b82f6;
+}
+
+/* Стили для детального отчета */
+.detailed-report {
+  margin-top: 2rem;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.report-header {
+  padding: 1.2rem 1.5rem;
+  color: white;
+}
+
+.report-header.report-safe {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.report-header.report-warning {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+.report-header.report-danger {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.report-header h4 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.risk-level {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 0.3rem;
+  opacity: 0.95;
+}
+
+.report-body {
+  padding: 1.5rem;
+}
+
+.report-section {
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.report-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.report-section h5 {
+  color: #1f2937;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.job-summary p {
+  margin: 0.5rem 0;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.job-summary strong {
+  color: #374151;
+  min-width: 120px;
+  display: inline-block;
+}
+
+.indicators-list {
+  background: #f9fafb;
+  padding: 1.2rem;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.indicator-category {
+  margin-bottom: 1.2rem;
+}
+
+.indicator-category:last-child {
+  margin-bottom: 0;
+}
+
+.indicator-category strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.indicator {
+  padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+  margin-left: 0.5rem;
+  position: relative;
+  color: #4b5563;
+}
+
+.indicator.danger::before {
+  content: "🚨";
+  position: absolute;
+  left: 0;
+}
+
+.indicator.warning::before {
+  content: "⚠️";
+  position: absolute;
+  left: 0;
+}
+
+.indicator.success::before {
+  content: "✅";
+  position: absolute;
+  left: 0;
+}
+
+.recommendation {
+  font-weight: 600;
+  padding: 1.2rem;
+  border-radius: 8px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0369a1;
+  line-height: 1.6;
+}
+
+.verification-steps {
+  background: #f0fdf4;
+  padding: 1.2rem;
+  border-radius: 8px;
+  border: 1px solid #bbf7d0;
+}
+
+.step {
+  padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+  color: #166534;
+  position: relative;
+}
+
+.step::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  font-weight: bold;
+  color: #059669;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .parse-section {
+    padding: 1rem;
+  }
+  
+  .job-preview {
+    padding: 1rem;
+  }
+  
+  .preview-field {
+    flex-direction: column;
+  }
+  
+  .preview-field strong {
+    margin-bottom: 0.3rem;
+  }
+  
+  .detailed-report {
+    margin-top: 1rem;
+  }
+  
+  .report-body {
+    padding: 1rem;
+  }
+  
+  .job-summary strong {
+    min-width: auto;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+}
