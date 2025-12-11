@@ -104,7 +104,12 @@ function setupParseByLink() {
 async function parseRealJobPage(url) {
   console.log("Parsing real page:", url);
   
-  // Используем CORS прокси чтобы обойти ограничения
+  // Специальная обработка для HH.ru
+  if (url.includes('hh.ru')) {
+    return await parseHHJob(url);
+  }
+  
+  // Используем CORS прокси для других сайтов
   const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
   
   const response = await fetch(proxyUrl, {
@@ -156,6 +161,150 @@ function extractJobDataFromDOM(doc, url) {
     // Общий парсинг для любых сайтов
     return parseGenericDOM(doc, jobData);
   }
+}
+
+// Специальный парсинг для HH.ru
+async function parseHHJob(url) {
+  console.log("Parsing HH.ru job with enhanced parser");
+  
+  try {
+    const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    
+    const response = await fetch(proxyUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    console.log("HH.ru HTML received, length:", html.length);
+    
+    // Проверяем, что получили правильную страницу
+    if (html.includes('vacancy-title') || html.includes('hh.ru/vacancy')) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      return parseHHDOM(doc, { source_url: url });
+    } else {
+      throw new Error("Not a valid HH.ru vacancy page");
+    }
+    
+  } catch (error) {
+    console.error("HH.ru parsing error:", error);
+    throw error;
+  }
+}
+
+function parseHHDOM(doc, jobData) {
+  console.log("Parsing HH.ru job posting");
+  
+  // Заголовок вакансии
+  jobData.title = doc.querySelector('h1[data-qa="vacancy-title"]')?.textContent?.trim() ||
+                  doc.querySelector('.vacancy-title')?.textContent?.trim() ||
+                  doc.querySelector('h1')?.textContent?.trim() ||
+                  "Job Title";
+  
+  // Компания
+  const companyName = doc.querySelector('[data-qa="vacancy-company-name"]')?.textContent?.trim() ||
+                      doc.querySelector('.vacancy-company-name')?.textContent?.trim() ||
+                      doc.querySelector('.company-name')?.textContent?.trim() ||
+                      "";
+  
+  // Описание компании
+  const companyInfo = doc.querySelector('[data-qa="vacancy-company-details"]')?.textContent?.trim() ||
+                      doc.querySelector('.vacancy-company-details')?.textContent?.trim() ||
+                      "";
+  
+  jobData.company_profile = `${companyName}${companyInfo ? ` - ${companyInfo}` : ''}`;
+  
+  // Описание вакансии
+  const descriptionElement = doc.querySelector('[data-qa="vacancy-description"]') ||
+                             doc.querySelector('.vacancy-description') ||
+                             doc.querySelector('.g-user-content');
+  
+  if (descriptionElement) {
+    // Получаем весь текст из описания
+    jobData.description = descriptionElement.textContent?.trim() || "";
+    
+    // Пытаемся выделить требования и обязанности
+    const text = jobData.description.toLowerCase();
+    
+    // Ищем требования (обычно начинаются с "Требования:", "Мы ждем:", "Обязанности:")
+    const requirementsMatch = text.match(/(?:требования|ожидаем|ждем|нужно|обязанности)(.*?)(?:обязанности|условия|предлагаем|$)/si);
+    if (requirementsMatch) {
+      jobData.requirements = requirementsMatch[1].trim();
+    }
+    
+    // Ищем условия/бенефиты
+    const benefitsMatch = text.match(/(?:условия|предлагаем|бенефиты|мы предлагаем)(.*?)(?:требования|обязанности|$)/si);
+    if (benefitsMatch) {
+      jobData.benefits = benefitsMatch[1].trim();
+    }
+  } else {
+    // Если не нашли специальный элемент, берем основной контент
+    const mainContent = doc.querySelector('main') || doc.querySelector('.vacancy-page') || doc.body;
+    jobData.description = mainContent.textContent?.substring(0, 3000).trim() || "";
+  }
+  
+  // Локация
+  jobData.location = doc.querySelector('[data-qa="vacancy-view-location"]')?.textContent?.trim() ||
+                     doc.querySelector('.vacancy-address')?.textContent?.trim() ||
+                     doc.querySelector('[data-qa="vacancy-serp__vacancy-address"]')?.textContent?.trim() ||
+                     "";
+  
+  // Зарплата
+  const salaryElement = doc.querySelector('[data-qa="vacancy-salary"]') ||
+                        doc.querySelector('.vacancy-salary') ||
+                        doc.querySelector('.bloko-header-section-3');
+  
+  if (salaryElement) {
+    jobData.salary_range = salaryElement.textContent?.trim() || "";
+  }
+  
+  // Тип занятости
+  const employmentElements = doc.querySelectorAll('[data-qa="vacancy-view-employment-mode"]');
+  if (employmentElements.length > 0) {
+    const employmentTypes = Array.from(employmentElements).map(el => el.textContent?.trim()).filter(Boolean);
+    jobData.employment_type = employmentTypes.join(', ');
+  } else {
+    // Пытаемся определить по тексту
+    const text = jobData.description.toLowerCase();
+    if (text.includes('удален') || text.includes('remote') || text.includes('дистанцион')) {
+      jobData.employment_type = "Remote";
+    } else if (text.includes('офис') || text.includes('office')) {
+      jobData.employment_type = "Office";
+    } else if (text.includes('гибрид') || text.includes('hybrid')) {
+      jobData.employment_type = "Hybrid";
+    }
+  }
+  
+  // Опыт работы
+  const experienceElement = doc.querySelector('[data-qa="vacancy-experience"]');
+  if (experienceElement) {
+    jobData.requirements = (jobData.requirements || "") + "\n" + experienceElement.textContent?.trim();
+  }
+  
+  // Ключевые навыки
+  const skillsElements = doc.querySelectorAll('[data-qa="bloko-tag__text"]');
+  if (skillsElements.length > 0) {
+    const skills = Array.from(skillsElements).map(el => el.textContent?.trim()).filter(Boolean);
+    jobData.requirements = (jobData.requirements || "") + "\n\nSkills: " + skills.join(', ');
+  }
+  
+  // Отрасль/индустрия
+  const industryElements = doc.querySelectorAll('.bloko-tag_inversed');
+  if (industryElements.length > 0) {
+    const industries = Array.from(industryElements).map(el => el.textContent?.trim()).filter(Boolean);
+    jobData.industry = industries.join(', ');
+  }
+  
+  return jobData;
 }
 
 function parseLinkedInDOM(doc, jobData) {
@@ -257,21 +406,22 @@ function parseGenericDOM(doc, jobData) {
   // Берем текст как описание
   jobData.description = textContent.substring(0, 3000).trim();
   
-  // Пытаемся найти зарплату
-  const salaryRegex = /\$?\d{1,3}(?:,\d{3})*(?:\.\d{2})?(?:\s*(?:USD|€|£)?\s*(?:per|a)\s*(?:year|month|hour|week))/gi;
+  // Пытаемся найти зарплату (русские и английские форматы)
+  const salaryRegex = /(от\s*)?(\d[\d\s]*)\s*(₽|руб|рублей|₴|грн|USD|\$|€|£|\$?\d{1,3}(?:,\d{3})*(?:\.\d{2})?(?:\s*(?:per|a)\s*(?:year|month|hour|week)))/gi;
   const salaries = textContent.match(salaryRegex);
   jobData.salary_range = salaries ? salaries[0] : "";
   
   // Пытаемся найти локацию
-  const locationMatch = textContent.match(/(?:location|based in|remote|hybrid|office in)\s*:?\s*([A-Za-z\s,]+)/i);
-  jobData.location = locationMatch ? locationMatch[1].trim() : "";
+  const locationRegex = /(Москва|Санкт-Петербург|Киев|Минск|Алматы|удален|remote|офис|гибрид|Location:?\s*([A-Za-z\s,]+))/i;
+  const locationMatch = textContent.match(locationRegex);
+  jobData.location = locationMatch ? locationMatch[1] || locationMatch[0] : "";
   
   // Пытаемся найти требования
-  const requirementsMatch = textContent.match(/(?:requirements|qualifications|skills needed)(.*?)(?=benefits|responsibilities|$)/si);
+  const requirementsMatch = textContent.match(/(?:requirements|qualifications|skills needed|требования|обязанности)(.*?)(?:benefits|responsibilities|$)/si);
   jobData.requirements = requirementsMatch ? requirementsMatch[1].trim() : "";
   
   // Пытаемся найти benefits
-  const benefitsMatch = textContent.match(/(?:benefits|perks|what we offer)(.*?)(?=requirements|responsibilities|$)/si);
+  const benefitsMatch = textContent.match(/(?:benefits|perks|what we offer|условия|предлагаем)(.*?)(?:requirements|responsibilities|$)/si);
   jobData.benefits = benefitsMatch ? benefitsMatch[1].trim() : "";
   
   return jobData;
@@ -317,6 +467,22 @@ async function parseWithOpenGraph(url) {
 
 // Запасной вариант: mock данные
 function getMockDataBasedOnURL(url) {
+  const urlLower = url.toLowerCase();
+  
+  if (urlLower.includes('hh.ru')) {
+    return {
+      title: "Менеджер по продажам",
+      company_profile: "ООО 'ТехноПрогресс' - ведущая IT-компания, специализирующаяся на разработке программного обеспечения.",
+      description: "Мы ищем менеджера по продажам для развития клиентской базы и увеличения продаж наших IT-решений.\n\nОбязанности:\n- Поиск новых клиентов\n- Проведение переговоров и презентаций\n- Заключение договоров\n- Ведение клиентской базы\n\nТребования:\n- Опыт работы в продажах от 2 лет\n- Знание IT-рынка\n- Навыки ведения переговоров\n- Умение работать с CRM\n\nМы предлагаем:\n- Конкурентную зарплату + бонусы\n- Официальное трудоустройство\n- Обучение и развитие\n- Современный офис в центре города",
+      requirements: "• Опыт работы в продажах от 2 лет\n• Знание IT-рынка\n• Навыки ведения переговоров\n• Умение работать с CRM-системами\n• Высшее образование",
+      benefits: "• Конкурентная зарплата + бонусы\n• Официальное трудоустройство\n• Корпоративное обучение\n• ДМС\n• Современный офис в центре",
+      location: "Москва, м. Тверская",
+      salary_range: "от 120 000 ₽",
+      employment_type: "Полная занятость",
+      industry: "Информационные технологии"
+    };
+  }
+  
   const mockJobs = [
     {
       title: "Senior Software Engineer",
@@ -339,42 +505,14 @@ function getMockDataBasedOnURL(url) {
       salary_range: "$90,000 - $130,000",
       employment_type: "Full-time",
       industry: "Data Analytics"
-    },
-    {
-      title: "Marketing Manager",
-      company_profile: "Growth Digital Agency - Helping businesses scale through digital marketing strategies.",
-      description: "Lead marketing campaigns, manage client relationships, and develop marketing strategies.",
-      requirements: "• Bachelor's degree in Marketing\n• 4+ years marketing experience\n• Digital marketing expertise\n• Team management skills",
-      benefits: "• Performance bonuses\n• Health insurance\n• Remote work flexibility\n• Creative freedom",
-      location: "Remote",
-      salary_range: "$85,000 - $120,000",
-      employment_type: "Full-time",
-      industry: "Marketing"
-    },
-    {
-      title: "UX/UI Designer",
-      company_profile: "Creative Design Studio - Award-winning design agency focused on user experience.",
-      description: "Create beautiful and functional user interfaces for web and mobile applications.",
-      requirements: "• 3+ years in UX/UI design\n• Proficiency in Figma/Sketch\n• Portfolio of previous work\n• Understanding of user psychology",
-      benefits: "• Creative work environment\n• Professional development\n• Flexible schedule\n• Health and wellness benefits",
-      location: "Austin, TX or Remote",
-      salary_range: "$95,000 - $135,000",
-      employment_type: "Full-time",
-      industry: "Design"
     }
   ];
   
-  // Выбираем случайный mock или по ключевым словам в URL
-  const urlLower = url.toLowerCase();
-  
+  // Выбираем по ключевым словам
   if (urlLower.includes('software') || urlLower.includes('engineer') || urlLower.includes('developer')) {
     return mockJobs[0];
   } else if (urlLower.includes('data') || urlLower.includes('analyst') || urlLower.includes('analytics')) {
     return mockJobs[1];
-  } else if (urlLower.includes('marketing') || urlLower.includes('manager') || urlLower.includes('growth')) {
-    return mockJobs[2];
-  } else if (urlLower.includes('design') || urlLower.includes('ux') || urlLower.includes('ui')) {
-    return mockJobs[3];
   }
   
   // Случайный выбор
@@ -1102,4 +1240,4 @@ function renderMissingChart(fields, missingReal, missingFake) {
 }
 
 // Инициализация при загрузке
-console.log("JobShield initialized with URL parsing capability");
+console.log("JobShield initialized with enhanced HH.ru parsing");
