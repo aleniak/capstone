@@ -4,1031 +4,216 @@
   <meta charset="UTF-8" />
   <title>JobShield – Fake Job Detector</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    /* === ВСЕ СТИЛИ ВСТРОЕНЫ === */
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; 
-      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-      color: #1f2937; 
-      line-height: 1.6;
-      min-height: 100vh;
-      padding: 20px;
-    }
-    
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-      overflow: hidden;
-    }
-    
-    .header { 
-      background: linear-gradient(135deg, #1e40af, #3b82f6);
-      color: white; 
-      padding: 2.5rem 2rem;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-    }
-    .header::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -50%;
-      width: 100%;
-      height: 200%;
-      background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
-      background-size: 20px 20px;
-      opacity: 0.2;
-    }
-    .header h1 { 
-      margin: 0; 
-      font-size: 2.8rem; 
-      font-weight: 800;
-      position: relative;
-      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-    .subtitle { 
-      margin: 0.8rem 0 0; 
-      opacity: 0.95; 
-      font-size: 1.2rem;
-      font-weight: 300;
-      position: relative;
-    }
-    
-    .tabs { 
-      display: flex; 
-      justify-content: center; 
-      background: white;
-      border-bottom: 2px solid #e5e7eb;
-      padding: 0 1rem;
-    }
-    .tab-button { 
-      padding: 1.2rem 2.5rem; 
-      background: none; 
-      border: none; 
-      font-size: 1.1rem; 
-      font-weight: 600; 
-      color: #6b7280;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      position: relative;
-    }
-    .tab-button:hover {
-      color: #3b82f6;
-      background: #f8fafc;
-    }
-    .tab-button.active {
-      color: #1e40af;
-    }
-    .tab-button.active::after {
-      content: '';
-      position: absolute;
-      bottom: -2px;
-      left: 0;
-      right: 0;
-      height: 3px;
-      background: #3b82f6;
-      border-radius: 3px 3px 0 0;
-    }
-    
-    .main {
-      padding: 2.5rem;
-    }
-    
-    .tab-content {
-      display: none;
-      animation: fadeIn 0.5s ease;
-    }
-    .tab-content.active {
-      display: block;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    h2 {
-      font-size: 2rem;
-      color: #1f2937;
-      margin-bottom: 1rem;
-      font-weight: 700;
-    }
-    
-    .section-description {
-      color: #6b7280;
-      margin-bottom: 2.5rem;
-      font-size: 1.1rem;
-      line-height: 1.7;
-    }
-    
-    .form {
-      background: #f8fafc;
-      padding: 2rem;
-      border-radius: 12px;
-      border: 1px solid #e5e7eb;
-      margin-bottom: 2rem;
-    }
-    
-    .form-row {
-      margin-bottom: 1.8rem;
-    }
-    
-    .form-row label {
-      display: block;
-      margin-bottom: 0.6rem;
-      font-weight: 600;
-      color: #374151;
-      font-size: 1rem;
-    }
-    
-    .form-row input,
-    .form-row select,
-    .form-row textarea {
-      width: 100%;
-      padding: 0.9rem 1rem;
-      border: 2px solid #d1d5db;
-      border-radius: 8px;
-      font-size: 1rem;
-      font-family: inherit;
-      transition: all 0.3s ease;
-      background: white;
-    }
-    
-    .form-row input:focus,
-    .form-row select:focus,
-    .form-row textarea:focus {
-      outline: none;
-      border-color: #3b82f6;
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    .form-row textarea {
-      min-height: 100px;
-      resize: vertical;
-    }
-    
-    .form-actions {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      margin-top: 2rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid #e5e7eb;
-    }
-    
-    #predict-button {
-      background: linear-gradient(135deg, #3b82f6, #1e40af);
-      color: white;
-      border: none;
-      padding: 1rem 2.5rem;
-      font-size: 1.1rem;
-      font-weight: 600;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
-    }
-    
-    #predict-button:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3);
-    }
-    
-    #predict-button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-    
-    .status {
-      color: #6b7280;
-      font-size: 0.95rem;
-      font-style: italic;
-    }
-    
-    .result {
-      padding: 1.8rem;
-      border-radius: 12px;
-      margin: 2rem 0;
-      animation: slideIn 0.5s ease;
-    }
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .result.hidden {
-      display: none;
-    }
-    
-    .result.success {
-      background: linear-gradient(135deg, #d1fae5, #a7f3d0);
-      border: 2px solid #10b981;
-    }
-    
-    .result.danger {
-      background: linear-gradient(135deg, #fee2e2, #fecaca);
-      border: 2px solid #ef4444;
-    }
-    
-    .result-message {
-      font-size: 1.3rem;
-      font-weight: 600;
-      margin-bottom: 0.8rem;
-    }
-    
-    .result-prob {
-      font-size: 1.1rem;
-      color: #374151;
-      font-weight: 500;
-    }
-    
-    .alert {
-      padding: 1.2rem;
-      background: #fef3c7;
-      border: 1px solid #f59e0b;
-      border-radius: 8px;
-      color: #92400e;
-      margin: 1.5rem 0;
-    }
-    
-    .alert.hidden {
-      display: none;
-    }
-    
-    /* Рекомендации */
-    .recommendation {
-      margin-top: 2rem;
-      padding: 1.8rem;
-      border-radius: 12px;
-      border-left: 5px solid;
-      animation: slideIn 0.6s ease;
-    }
-    
-    .recommendation-safe {
-      background: linear-gradient(135deg, #d1fae5, #a7f3d0);
-      border-left-color: #10b981;
-    }
-    
-    .recommendation-warning {
-      background: linear-gradient(135deg, #fef3c7, #fde68a);
-      border-left-color: #f59e0b;
-    }
-    
-    .recommendation-danger {
-      background: linear-gradient(135deg, #fee2e2, #fecaca);
-      border-left-color: #ef4444;
-    }
-    
-    .recommendation-header {
-      margin-bottom: 1.2rem;
-    }
-    
-    .recommendation-header h3 {
-      font-size: 1.4rem;
-      margin: 0;
-      font-weight: 700;
-    }
-    
-    .recommendation-confidence {
-      font-size: 0.9rem;
-      color: #6b7280;
-      font-weight: 500;
-      margin-top: 0.3rem;
-    }
-    
-    .recommendation-body {
-      line-height: 1.7;
-    }
-    
-    .recommendation-summary {
-      font-size: 1.1rem;
-      margin-bottom: 1.2rem;
-      color: #1f2937;
-    }
-    
-    .recommendation-details h4 {
-      margin: 0 0 0.8rem 0;
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #374151;
-    }
-    
-    .recommendation-details ul {
-      margin: 0 0 1.5rem 0;
-      padding-left: 1.5rem;
-    }
-    
-    .recommendation-details li {
-      margin-bottom: 0.6rem;
-      color: #4b5563;
-    }
-    
-    /* EDA Стили */
-    .eda-summary, .eda-insights {
-      background: white;
-      padding: 2rem;
-      border-radius: 12px;
-      border: 1px solid #e5e7eb;
-      margin-bottom: 2rem;
-    }
-    
-    .eda-summary h3, .eda-insights h3 {
-      color: #1e40af;
-      margin-bottom: 1.2rem;
-      font-size: 1.5rem;
-    }
-    
-    #dataset-summary {
-      list-style: none;
-      padding: 0;
-    }
-    
-    #dataset-summary li {
-      padding: 0.8rem 0;
-      border-bottom: 1px solid #f1f5f9;
-      font-size: 1.1rem;
-    }
-    
-    #dataset-summary li:last-child {
-      border-bottom: none;
-    }
-    
-    #dataset-summary span {
-      font-weight: 700;
-      color: #1e40af;
-    }
-    
-    #insights-list {
-      padding-left: 1.5rem;
-    }
-    
-    #insights-list li {
-      margin-bottom: 1rem;
-      color: #4b5563;
-      line-height: 1.6;
-    }
-    
-    .wordcloud-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 2rem;
-      margin-top: 1.5rem;
-    }
-    
-    .wordcloud-card {
-      background: white;
-      padding: 1.8rem;
-      border-radius: 12px;
-      border: 1px solid #e5e7eb;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-    }
-    
-    .wordcloud-card h4 {
-      color: #1e40af;
-      margin-bottom: 1rem;
-      font-size: 1.3rem;
-    }
-    
-    .wordcloud-text {
-      font-size: 1.1rem;
-      line-height: 1.8;
-      color: #6b7280;
-      font-weight: 500;
-    }
-    
-    .wordcloud-text.real {
-      color: #059669;
-    }
-    
-    .wordcloud-text.fake {
-      color: #dc2626;
-    }
-    
-    .footer {
-      text-align: center;
-      padding: 2rem;
-      color: #6b7280;
-      font-size: 0.95rem;
-      border-top: 1px solid #e5e7eb;
-      margin-top: 3rem;
-    }
-    
-    /* Адаптивность */
-    @media (max-width: 768px) {
-      body { padding: 10px; }
-      .header h1 { font-size: 2.2rem; }
-      .subtitle { font-size: 1rem; }
-      .tab-button { padding: 1rem 1.5rem; font-size: 1rem; }
-      .main { padding: 1.5rem; }
-      .form { padding: 1.5rem; }
-      h2 { font-size: 1.7rem; }
-    }
-    
-    @media (max-width: 480px) {
-      .tabs { flex-direction: column; }
-      .tab-button { width: 100%; text-align: center; }
-      .form-actions { flex-direction: column; align-items: stretch; }
-      #predict-button { width: 100%; }
-      .wordcloud-grid { grid-template-columns: 1fr; }
-    }
-  </style>
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js" defer></script>
+  <!-- PapaParse CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js" defer></script>
+  
+  <script src="app.js" defer></script>
 </head>
 <body>
-  <div class="container">
-    <header class="header">
-      <h1>JobShield</h1>
-      <p class="subtitle">Fake job posting detector & dataset explorer</p>
-    </header>
+  <header class="header">
+    <h1>JobShield</h1>
+    <p class="subtitle">Fake job posting detector & dataset explorer</p>
+  </header>
 
-    <!-- Tabs -->
-    <nav class="tabs">
-      <button class="tab-button active" data-tab="job-check">Job Check</button>
-      <button class="tab-button" data-tab="eda">EDA / Dataset</button>
-    </nav>
+  <!-- Tabs -->
+  <nav class="tabs">
+    <button class="tab-button active" data-tab="job-check">Job Check</button>
+    <button class="tab-button" data-tab="eda">EDA / Dataset</button>
+  </nav>
 
-    <main class="main">
-      <!-- Job Check tab -->
-      <section id="job-check" class="tab-content active">
-        <h2>Job Check</h2>
+  <main class="main">
+    <!-- Job Check tab -->
+    <section id="job-check" class="tab-content active">
+      <h2>Job Check</h2>
+      <p class="section-description">
+        Fill in the job posting details manually or paste a URL to auto-parse, then click Predict to estimate fraud probability.
+      </p>
+
+      <!-- Parse by URL Section -->
+      <section class="parse-section">
+        <h3>📥 Parse Job from URL (Optional)</h3>
         <p class="section-description">
-          Fill in the job posting details and click Predict to estimate fraud probability.
+          Paste a job URL from LinkedIn, Indeed, Glassdoor, etc. to automatically fill the form.
         </p>
-
-        <form id="job-form" class="form">
+        
+        <form id="parse-form" class="form">
           <div class="form-row">
-            <label for="title">Title</label>
-            <input type="text" id="title" name="title" placeholder="e.g. Data Analyst" />
+            <label for="job-url">Job Posting URL</label>
+            <input type="url" id="job-url" name="job-url" 
+                   placeholder="https://www.linkedin.com/jobs/view/..." />
+            <small style="color: #6b7280; display: block; margin-top: 5px;">
+              Supports: LinkedIn, Indeed, Glassdoor, HH.ru, Habr Career
+            </small>
           </div>
-
-          <div class="form-row">
-            <label for="company_profile">Company profile</label>
-            <textarea id="company_profile" name="company_profile" rows="3"
-              placeholder="Brief company description"></textarea>
-          </div>
-
-          <div class="form-row">
-            <label for="description">Description</label>
-            <textarea id="description" name="description" rows="5"
-              placeholder="Main job description"></textarea>
-          </div>
-
-          <div class="form-row">
-            <label for="requirements">Requirements</label>
-            <textarea id="requirements" name="requirements" rows="4"
-              placeholder="Key skills and requirements"></textarea>
-          </div>
-
-          <div class="form-row">
-            <label for="benefits">Benefits</label>
-            <textarea id="benefits" name="benefits" rows="3"
-              placeholder="Perks and benefits"></textarea>
-          </div>
-
-          <div class="form-row">
-            <label for="location">Location</label>
-            <input type="text" id="location" name="location" placeholder="e.g. US, CA, San Francisco" />
-          </div>
-
-          <div class="form-row">
-            <label for="salary_range">Salary (USD)</label>
-            <input type="text" id="salary_range" name="salary_range" placeholder="e.g. 60000" />
-          </div>
-
-          <div class="form-row">
-            <label for="employment_type">Employment type</label>
-            <select id="employment_type" name="employment_type">
-              <option value="">Select type</option>
-              <option value="Full-time">Full-time</option>
-              <option value="Part-time">Part-time</option>
-              <option value="Contract">Contract</option>
-              <option value="Internship">Internship</option>
-              <option value="Temporary">Temporary</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-
-          <div class="form-row">
-            <label for="industry">Industry</label>
-            <input type="text" id="industry" name="industry" placeholder="e.g. Information Technology" />
-          </div>
-
+          
           <div class="form-actions">
-            <button type="submit" id="predict-button">Predict</button>
-            <span id="predict-status" class="status"></span>
+            <button type="submit" id="parse-button">🔍 Parse Job</button>
+            <span id="parse-status" class="status"></span>
           </div>
         </form>
+        
+        <div id="parse-error" class="alert hidden"></div>
+        
+        <div id="job-preview" class="job-preview hidden">
+          <div id="preview-content"></div>
+        </div>
+      </section>
 
-        <div id="predict-result" class="result hidden">
-          <div id="predict-message" class="result-message"></div>
-          <div id="predict-prob" class="result-prob"></div>
+      <!-- Manual Form Section -->
+      <h3 style="margin-top: 2rem;">Or Enter Details Manually</h3>
+      <form id="job-form" class="form">
+        <div class="form-row">
+          <label for="title">Title</label>
+          <input type="text" id="title" name="title" placeholder="e.g. Data Analyst" />
         </div>
 
-        <div id="predict-error" class="alert hidden"></div>
+        <div class="form-row">
+          <label for="company_profile">Company profile</label>
+          <textarea id="company_profile" name="company_profile" rows="3"
+            placeholder="Brief company description"></textarea>
+        </div>
+
+        <div class="form-row">
+          <label for="description">Description</label>
+          <textarea id="description" name="description" rows="5"
+            placeholder="Main job description"></textarea>
+        </div>
+
+        <div class="form-row">
+          <label for="requirements">Requirements</label>
+          <textarea id="requirements" name="requirements" rows="4"
+            placeholder="Key skills and requirements"></textarea>
+        </div>
+
+        <div class="form-row">
+          <label for="benefits">Benefits</label>
+          <textarea id="benefits" name="benefits" rows="3"
+            placeholder="Perks and benefits"></textarea>
+        </div>
+
+        <div class="form-row">
+          <label for="location">Location</label>
+          <input type="text" id="location" name="location" placeholder="e.g. US, CA, San Francisco" />
+        </div>
+
+        <div class="form-row">
+          <label for="salary_range">Salary (USD)</label>
+          <input type="text" id="salary_range" name="salary_range" placeholder="e.g. 60000" />
+        </div>
+
+        <div class="form-row">
+          <label for="employment_type">Employment type</label>
+          <select id="employment_type" name="employment_type">
+            <option value="">Select type</option>
+            <option value="Full-time">Full-time</option>
+            <option value="Part-time">Part-time</option>
+            <option value="Contract">Contract</option>
+            <option value="Internship">Internship</option>
+            <option value="Temporary">Temporary</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label for="industry">Industry</label>
+          <input type="text" id="industry" name="industry" placeholder="e.g. Information Technology" />
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" id="predict-button">Predict</button>
+          <span id="predict-status" class="status"></span>
+        </div>
+      </form>
+
+      <div id="predict-result" class="result hidden">
+        <div id="predict-message" class="result-message"></div>
+        <div id="predict-prob" class="result-prob"></div>
+      </div>
+
+      <div id="predict-error" class="alert hidden"></div>
+    </section>
+
+    <!-- EDA tab -->
+    <section id="eda" class="tab-content">
+      <h2>EDA / Dataset</h2>
+      <p class="section-description">
+        Dataset of combined real and fraudulent job postings with text fields and a binary fraudulent label.
+      </p>
+
+      <section class="eda-summary">
+        <h3>Dataset overview</h3>
+        <ul id="dataset-summary">
+          <li>Total job postings: <span id="total-count">–</span></li>
+          <li>Legitimate postings (fraudulent = 0): <span id="real-count">–</span></li>
+          <li>Fraudulent postings (fraudulent = 1): <span id="fraud-count">–</span></li>
+          <li>Main text fields: title, company_profile, description, requirements, benefits, location, salary_range, employment_type, industry, fulltext.</li>
+          <li>Target variable: fraudulent (0 = real, 1 = fake).</li>
+        </ul>
       </section>
 
-      <!-- EDA tab -->
-      <section id="eda" class="tab-content">
-        <h2>EDA / Dataset</h2>
-        <p class="section-description">
-          Dataset of combined real and fraudulent job postings with text fields and a binary fraudulent label.
-        </p>
+      <section class="charts">
+        <div class="chart-card">
+          <h3>Fraudulent vs real postings</h3>
+          <canvas id="fraud-chart"></canvas>
+        </div>
 
-        <section class="eda-summary">
-          <h3>Dataset overview</h3>
-          <ul id="dataset-summary">
-            <li>Total job postings: <span id="total-count">27,880</span></li>
-            <li>Legitimate postings (fraudulent = 0): <span id="real-count">17,014</span></li>
-            <li>Fraudulent postings (fraudulent = 1): <span id="fraud-count">10,866</span></li>
-            <li>Main text fields: title, company_profile, description, requirements, benefits, location, salary_range, employment_type, industry, fulltext.</li>
-            <li>Target variable: fraudulent (0 = real, 1 = fake).</li>
-          </ul>
-        </section>
+        <div class="chart-card">
+          <h3>Description length buckets</h3>
+          <canvas id="length-chart"></canvas>
+        </div>
 
-        <section class="eda-insights">
-          <h3>Key insights</h3>
-          <ul id="insights-list">
-            <li>Most job postings in the dataset are legitimate, but there is a noticeable fraction of fraudulent ones.</li>
-            <li>Fraudulent postings often differ in text length compared with legitimate ones, which can be leveraged as a feature.</li>
-            <li>Rich job descriptions, clear company profiles and realistic salary information usually correlate with legitimate jobs.</li>
-          </ul>
-        </section>
+        <div class="chart-card">
+          <h3>Length by class (Real vs Fake)</h3>
+          <canvas id="length-by-class-chart"></canvas>
+        </div>
 
-        <section class="eda-insights">
-          <h3>Real vs Fake word cloud</h3>
-          <div class="wordcloud-grid">
-            <div class="wordcloud-card">
-              <h4>Real jobs</h4>
-              <p class="wordcloud-text real">
-                experience, full time, team, work, client, project, support,
-                develop, ensure, employee, customer, service, skills, knowledge,
-                business, responsibility, communication, ability, join, solutions
-              </p>
-            </div>
-            <div class="wordcloud-card">
-              <h4>Fake jobs</h4>
-              <p class="wordcloud-text fake">
-                earn, week, flexible hours, degree required, basic knowledge,
-                immediate hiring, contact now, free, remote work, no experience,
-                5000 per week, home based, opportunity, apply now
-              </p>
-            </div>
+        <div class="chart-card">
+          <h3>Missing values (Real vs Fake)</h3>
+          <canvas id="missing-chart"></canvas>
+        </div>
+      </section>
+
+      <section class="eda-insights">
+        <h3>Key insights</h3>
+        <ul id="insights-list">
+          <li>Most job postings in the dataset are legitimate, but there is a noticeable fraction of fraudulent ones.</li>
+          <li>Fraudulent postings often differ in text length compared with legitimate ones, which can be leveraged as a feature.</li>
+          <li>Rich job descriptions, clear company profiles and realistic salary information usually correlate with legitimate jobs.</li>
+        </ul>
+      </section>
+
+      <section class="eda-insights">
+        <h3>Real vs Fake word cloud</h3>
+        <div class="wordcloud-grid">
+          <div class="wordcloud-card">
+            <h4>Real jobs</h4>
+            <p class="wordcloud-text real">
+              experience, full time, team, work, client, project, support,
+              develop, ensure, employee, customer, service, skills, knowledge,
+              business, responsibility, communication, ability, join, solutions
+            </p>
           </div>
-        </section>
-
-        <div id="eda-error" class="alert hidden"></div>
+          <div class="wordcloud-card">
+            <h4>Fake jobs</h4>
+            <p class="wordcloud-text fake">
+              earn, week, flexible hours, degree required, basic knowledge,
+              immediate hiring, contact now, free, remote work, no experience,
+              5000 per week, home based, opportunity, apply now
+            </p>
+          </div>
+        </div>
       </section>
-    </main>
 
-    <footer class="footer">
-      <span>JobShield &mdash; demo UI for fake job detection model.</span>
-    </footer>
-  </div>
+      <div id="eda-error" class="alert hidden"></div>
+    </section>
+  </main>
 
-  <!-- === ВСЕ СКРИПТЫ ВСТРОЕНЫ === -->
-  <script>
-    console.log("JobShield starting...");
-    
-    // --------- Tab navigation ----------
-    document.addEventListener("DOMContentLoaded", () => {
-      console.log("DOM loaded, initializing...");
-      
-      const tabButtons = document.querySelectorAll(".tab-button");
-      const tabContents = document.querySelectorAll(".tab-content");
-
-      tabButtons.forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const targetId = btn.getAttribute("data-tab");
-
-          tabButtons.forEach((b) => b.classList.remove("active"));
-          tabContents.forEach((c) => c.classList.remove("active"));
-
-          btn.classList.add("active");
-          const target = document.getElementById(targetId);
-          if (target) target.classList.add("active");
-        });
-      });
-
-      // Настраиваем форму предсказания
-      setupPredictionForm();
-      
-      // Показываем что система готова
-      const statusEl = document.getElementById("predict-status");
-      if (statusEl) {
-        statusEl.textContent = "✅ Ready to analyze job postings";
-        statusEl.style.color = "#10b981";
-        setTimeout(() => { statusEl.textContent = ""; }, 3000);
-      }
-    });
-
-    // --------- Job Check logic ----------
-    function setupPredictionForm() {
-      const form = document.getElementById("job-form");
-      if (!form) return;
-
-      const predictButton = document.getElementById("predict-button");
-      const statusEl = document.getElementById("predict-status");
-      const resultEl = document.getElementById("predict-result");
-      const messageEl = document.getElementById("predict-message");
-      const probEl = document.getElementById("predict-prob");
-      const errorEl = document.getElementById("predict-error");
-
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        
-        // Сброс
-        errorEl.classList.add("hidden");
-        resultEl.classList.add("hidden");
-        
-        // Сбор данных
-        const formData = new FormData(form);
-        const data = {
-          title: (formData.get("title") || "").toString().trim(),
-          company_profile: (formData.get("company_profile") || "").toString().trim(),
-          description: (formData.get("description") || "").toString().trim(),
-          requirements: (formData.get("requirements") || "").toString().trim(),
-          benefits: (formData.get("benefits") || "").toString().trim(),
-          location: (formData.get("location") || "").toString().trim(),
-          salary_range: (formData.get("salary_range") || "").toString().trim(),
-          employment_type: (formData.get("employment_type") || "").toString().trim(),
-          industry: (formData.get("industry") || "").toString().trim()
-        };
-        
-        // Проверка заполнения
-        let filledFields = 0;
-        let totalFields = 0;
-        for (const key in data) {
-          totalFields++;
-          if (data[key].length > 0) filledFields++;
-        }
-        
-        if (filledFields === 0) {
-          showError("Please fill in at least one field");
-          return;
-        }
-        
-        // Объединяем текст для анализа
-        const fullText = Object.values(data).join(" ");
-        
-        predictButton.disabled = true;
-        statusEl.textContent = "Analyzing job posting...";
-        statusEl.style.color = "";
-        
-        try {
-          // Делаем предсказание
-          const fraudProba = analyzeJobPosting(fullText, data);
-          
-          // Показываем результат
-          showPredictionResult(fraudProba, filledFields, totalFields, data, 
-                             resultEl, messageEl, probEl, statusEl);
-          
-          // Добавляем рекомендацию
-          showRecommendation(fraudProba, resultEl);
-          
-        } catch (err) {
-          console.error("Analysis error:", err);
-          showError("Analysis failed. Please try again.");
-          statusEl.textContent = "Error";
-          
-        } finally {
-          predictButton.disabled = false;
-          setTimeout(() => {
-            statusEl.textContent = "";
-          }, 2000);
-        }
-      });
-    }
-
-    // Основная функция анализа
-    function analyzeJobPosting(text, data) {
-      console.log("Analyzing:", text.substring(0, 100) + "...");
-      
-      const textLower = text.toLowerCase();
-      let fraudScore = 0;
-      let indicators = [];
-      
-      // === КРАСНЫЕ ФЛАГИ (сильные признаки мошенничества) ===
-      const redFlags = [
-        { 
-          pattern: /earn.*\$?\d+,?\d*\s*(per|a)\s*(week|month)/i, 
-          weight: 0.35,
-          message: "Unrealistic earnings promises"
-        },
-        { 
-          pattern: /investment.*required|fee.*required|payment.*required|send.*money/i, 
-          weight: 0.40,
-          message: "Requests for upfront payment"
-        },
-        { 
-          pattern: /mlm|multi.?level.?marketing|pyramid/i, 
-          weight: 0.38,
-          message: "MLM/pyramid scheme detected"
-        },
-        { 
-          pattern: /guaranteed.*income|guaranteed.*payment/i, 
-          weight: 0.32,
-          message: "Guaranteed income promises"
-        },
-        { 
-          pattern: /no experience needed|no experience required/i, 
-          weight: 0.25,
-          message: "No experience required for high pay"
-        }
-      ];
-      
-      // === ЖЕЛТЫЕ ФЛАГИ (средние признаки) ===
-      const yellowFlags = [
-        {
-          pattern: /immediate (start|hiring|position)/i,
-          weight: 0.18,
-          message: "Urgent hiring pressure"
-        },
-        {
-          pattern: /apply now|contact now|call now/i,
-          weight: 0.15,
-          message: "High-pressure language"
-        },
-        {
-          pattern: /work from home|remote work|home based/i,
-          weight: 0.12,
-          message: "Work from home mentioned"
-        },
-        {
-          pattern: /flexible hours|flexible schedule/i,
-          weight: 0.10,
-          message: "Flexible hours"
-        },
-        {
-          pattern: /free.*training|free.*enrollment/i,
-          weight: 0.15,
-          message: "Free training offers"
-        }
-      ];
-      
-      // === ЗЕЛЕНЫЕ ФЛАГИ (признаки легитимности) ===
-      const greenFlags = [
-        {
-          pattern: /experience.*required|qualification.*required|skill.*required/i,
-          weight: -0.20,
-          message: "Professional requirements"
-        },
-        {
-          pattern: /company|corporation|inc\.|llc|limited/i,
-          weight: -0.15,
-          message: "Professional company naming"
-        },
-        {
-          pattern: /benefits.*package|health.*insurance|retirement/i,
-          weight: -0.18,
-          message: "Comprehensive benefits"
-        },
-        {
-          pattern: /responsibilities|duties|role.*includes/i,
-          weight: -0.12,
-          message: "Clear job responsibilities"
-        }
-      ];
-      
-      // Проверяем красные флаги
-      redFlags.forEach(flag => {
-        if (flag.pattern.test(textLower)) {
-          fraudScore += flag.weight;
-          indicators.push({type: "danger", text: flag.message});
-        }
-      });
-      
-      // Проверяем желтые флаги
-      yellowFlags.forEach(flag => {
-        if (flag.pattern.test(textLower)) {
-          fraudScore += flag.weight;
-          indicators.push({type: "warning", text: flag.message});
-        }
-      });
-      
-      // Проверяем зеленые флаги (уменьшают риск)
-      greenFlags.forEach(flag => {
-        if (flag.pattern.test(textLower)) {
-          fraudScore += flag.weight;
-          indicators.push({type: "success", text: flag.message});
-        }
-      });
-      
-      // === Анализ структуры данных ===
-      
-      // Длина описания
-      if (data.description.length < 100) {
-        fraudScore += 0.25;
-        indicators.push({type: "warning", text: "Very short job description"});
-      } else if (data.description.length > 500) {
-        fraudScore -= 0.10;
-      }
-      
-      // Профиль компании
-      if (!data.company_profile || data.company_profile.length < 50) {
-        fraudScore += 0.20;
-        indicators.push({type: "warning", text: "Missing or brief company profile"});
-      }
-      
-      // Зарплата
-      if (data.salary_range) {
-        const salaryMatch = data.salary_range.match(/\$?(\d+,?\d+)/);
-        if (salaryMatch) {
-          const salary = parseInt(salaryMatch[1].replace(/,/g, ''));
-          if (!isNaN(salary)) {
-            if (salary < 10000) {
-              fraudScore += 0.15;
-              indicators.push({type: "warning", text: "Very low salary"});
-            } else if (salary > 300000) {
-              fraudScore += 0.25;
-              indicators.push({type: "danger", text: "Unrealistically high salary"});
-            } else if (salary > 50000 && salary < 200000) {
-              fraudScore -= 0.10;
-            }
-          }
-        }
-      } else {
-        fraudScore += 0.10;
-        indicators.push({type: "warning", text: "No salary information provided"});
-      }
-      
-      // Локация
-      if (!data.location || data.location.length < 2) {
-        fraudScore += 0.15;
-        indicators.push({type: "warning", text: "Missing location information"});
-      }
-      
-      // Требования
-      if (!data.requirements || data.requirements.length < 20) {
-        fraudScore += 0.15;
-        indicators.push({type: "warning", text: "Missing or brief requirements"});
-      }
-      
-      // Тип работы
-      if (data.employment_type === "Other" || !data.employment_type) {
-        fraudScore += 0.10;
-      }
-      
-      // === Нормализация результата ===
-      
-      let probability = 0.10; // Базовая вероятность
-      
-      if (fraudScore > 0) {
-        probability += Math.min(fraudScore, 1.5) * 0.6;
-      } else {
-        probability += fraudScore * 0.3; // Зеленые флаги уменьшают вероятность
-      }
-      
-      // Ограничиваем диапазон
-      probability = Math.max(0.05, Math.min(probability, 0.95));
-      
-      // Сохраняем индикаторы для показа
-      window.lastAnalysisIndicators = indicators;
-      
-      return probability;
-    }
-
-    function showPredictionResult(probability, filledFields, totalFields, data, 
-                                 resultEl, messageEl, probEl, statusEl) {
-      
-      const fraudPct = (probability * 100).toFixed(1);
-      const legitPct = (100 - probability * 100).toFixed(1);
-      const completeness = Math.round((filledFields / totalFields) * 100);
-      
-      resultEl.classList.remove("hidden", "success", "danger");
-      
-      if (probability < 0.5) {
-        resultEl.classList.add("success");
-        messageEl.textContent = "✅ This job posting appears legitimate.";
-      } else {
-        resultEl.classList.add("danger");
-        messageEl.textContent = "⚠️ Warning: high fraud probability detected.";
-      }
-      
-      probEl.textContent = `Fraud probability: ${fraudPct}% · Legitimate probability: ${legitPct}%`;
-      
-      if (completeness < 50) {
-        probEl.innerHTML += `<br><small style="color:#f59e0b;">Note: Only ${completeness}% of fields filled (${filledFields}/${totalFields})</small>`;
-      }
-      
-      statusEl.textContent = "Analysis complete";
-      statusEl.style.color = probability < 0.5 ? "#10b981" : "#ef4444";
-    }
-
-    function showRecommendation(probability, resultEl) {
-      // Удаляем старую рекомендацию
-      const oldRec = document.getElementById("recommendation-container");
-      if (oldRec) oldRec.remove();
-      
-      // Создаем новую
-      const rec = document.createElement("div");
-      rec.id = "recommendation-container";
-      rec.className = "recommendation";
-      
-      let title, text, details = [], colorClass;
-      
-      if (probability < 0.2) {
-        title = "✅ SAFE - Likely legitimate job";
-        text = "This job posting shows strong signs of legitimacy.";
-        colorClass = "recommendation-safe";
-        details = [
-          "✅ Professional language and detailed description",
-          "✅ Realistic salary and requirements",
-          "✅ Complete company information",
-          "💡 Standard job search precautions apply"
-        ];
-      } else if (probability < 0.4) {
-        title = "⚠️ MODERATE RISK - Proceed with caution";
-        text = "Some minor concerns detected. Verify the company before applying.";
-        colorClass = "recommendation-warning";
-        details = [
-          "🔍 Check company reviews on Glassdoor/LinkedIn",
-          "🔍 Verify official company website and contact information",
-          "🔍 Look for consistent information across job platforms",
-          "💡 Never pay any fees for employment"
-        ];
-      } else if (probability < 0.6) {
-        title = "⚠️ ELEVATED RISK - Be careful";
-        text = "Multiple suspicious indicators found. Thorough verification recommended.";
-        colorClass = "recommendation-warning";
-        details = [
-          "🔍 Research the company extensively online",
-          "🔍 Be cautious of requests for personal information",
-          "🔍 Verify job posting on company's official career page",
-          "🚫 Never send money or pay for training/certification"
-        ];
-      } else if (probability < 0.8) {
-        title = "❌ HIGH RISK - Likely fraudulent";
-        text = "Strong signs of potential fraud detected. Not recommended.";
-        colorClass = "recommendation-danger";
-        details = [
-          "🚫 Multiple scam patterns identified",
-          "🚫 Avoid sharing sensitive personal information",
-          "🚫 Do not make any payments or investments",
-          "📞 Consider reporting to job platform if possible"
-        ];
-      } else {
-        title = "🚫 VERY HIGH RISK - Probable scam";
-        text = "Clear fraudulent indicators detected. Strongly advise against applying.";
-        colorClass = "recommendation-danger";
-        details = [
-          "🚫 DO NOT RESPOND to this posting",
-          "🚫 Protect your personal and financial information",
-          "🚫 This shows classic scam characteristics",
-          "📞 Report suspicious posting to authorities"
-        ];
-      }
-      
-      // Добавляем обнаруженные индикаторы
-      if (window.lastAnalysisIndicators && window.lastAnalysisIndicators.length > 0) {
-        const dangerIndicators = window.lastAnalysisIndicators.filter(i => i.type === "danger");
-        const warningIndicators = window.lastAnalysisIndicators.filter(i => i.type === "warning");
-        const successIndicators = window.lastAnalysisIndicators.filter(i => i.type === "success");
-        
-        if (dangerIndicators.length > 0) {
-          details.push("<br><strong>🚨 Red flags detected:</strong>");
-          dangerIndicators.forEach(ind => {
-            details.push(`• ${ind.text}`);
-          });
-        }
-        
-        if (warningIndicators.length > 0) {
-          details.push("<br><strong>⚠️ Warning signs:</strong>");
-          warningIndicators.forEach(ind => {
-            details.push(`• ${ind.text}`);
-          });
-        }
-        
-        if (successIndicators.length > 0 && probability < 0.5) {
-          details.push("<br><strong>✅ Positive
-
-
-
-<!-- Добавьте этот блок после формы Job Check -->
-<section class="parse-section">
-  <h3>Or Parse Job from URL</h3>
-  <p class="section-description">
-    Paste a job URL from LinkedIn, Indeed, Glassdoor, etc. to auto-fill the form.
-  </p>
-  
-  <form id="parse-form" class="form">
-    <div class="form-row">
-      <label for="job-url">Job URL</label>
-      <input type="url" id="job-url" name="job-url" 
-             placeholder="https://www.linkedin.com/jobs/view/..." />
-    </div>
-    
-    <div class="form-actions">
-      <button type="submit" id="parse-button">Parse Job</button>
-      <span id="parse-status" class="status"></span>
-    </div>
-  </form>
-  
-  <div id="parse-error" class="alert hidden"></div>
-  
-  <div id="job-preview" class="job-preview hidden">
-    <div id="preview-content"></div>
-  </div>
-</section>
+  <footer class="footer">
+    <span>JobShield &mdash; fake job detection system with URL parsing.</span>
+  </footer>
+</body>
+</html>
